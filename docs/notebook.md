@@ -83,6 +83,18 @@ license requirement, while upgrading buys MicroBlaze-V + free DFX at the
 cost of a multi-GB install — decision needed before the static-region block
 design.
 
+*Revision (5 Jul 2026 05:33, after George pointed out 2025.2 is on this
+host):* `/usr/local/cad` holds Vivado **2020.2, 2023.1, and 2025.2** (my
+first search only covered `/tools` and `/opt`). Findings: **2025.2 has no
+Artix-7 device support installed** (`data/parts/xilinx/` lacks `artix7/`;
+adding it needs the installer and write access — dir is root:sno, gn262 is
+only in snoadmin). **2023.1 has Artix-7 and free DFX**, and the validation
+re-run there **PASSES: 75/75 ports, 0 errors, 0 critical warnings** (same
+libtinfo.so.5 shim required). Toolchain decision resolved: **use Vivado
+2023.1** — classic MicroBlaze (MicroBlaze-V arrived in 2023.2) but nothing
+else blocks; optionally have the admin add Artix-7 device files to 2025.2
+later for MicroBlaze-V.
+
 ## 5. Ideas for future experiments
 
 - Decide: upgrade Vivado (2023.2+ / 2025.x) for free DFX + MicroBlaze-V, or
