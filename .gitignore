@@ -1,0 +1,7 @@
+# Vivado
+build/
+.Xil/
+*.jou
+*.log
+*.str
+vivado_pid*.debug

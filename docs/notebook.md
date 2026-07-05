@@ -17,6 +17,7 @@ or removed at runtime from the FPGA dynamic (partial reconfiguration) region.
 
 # Table of Contents
 
+10. [EXPERIMENT  5 Jul 2026 05:14:19 Vivado Validation of the Master XDC](#5-jul-2026-051419) :complete:
 9. [EXPERIMENT  5 Jul 2026 05:08:00 Master XDC for the Full Sensor Complement](#5-jul-2026-050800) :complete:
 8. [EXPERIMENT  5 Jul 2026 05:01:07 Board Decision: Arty A7-100T — Pin and Resource Budget](#5-jul-2026-050107) :complete:
 7. [EXPERIMENT  5 Jul 2026 04:30:06 CPU Options on the Artix-7](#5-jul-2026-043006) :complete:
@@ -26,6 +27,68 @@ or removed at runtime from the FPGA dynamic (partial reconfiguration) region.
 3. [EXPERIMENT  4 Jul 2026 07:34:03 OHWR Cores for the Dynamic Region of This Host (Alveo U250)](#4-jul-2026-073403) :complete:
 2. [EXPERIMENT  4 Jul 2026 07:26:08 Vitis Libraries Suitability for the FPGA Dynamic Region](#4-jul-2026-072608) :complete:
 1. [EXPERIMENT  4 Jul 2026 07:20:01 Repository and Notebook Initialization](#4-jul-2026-072001) :complete:
+
+---
+
+# EXPERIMENT  5 Jul 2026 05:14:19 Vivado Validation of the Master XDC :complete:
+
+## 1. Hypothesis
+
+Does the entry-9 master XDC survive real toolchain validation — synthesis
+and placement for xc7a100tcsg324-1 — with no LOC, port, or clock-placement
+errors?
+
+## 2. How
+
+- **Equipment:** this host (no FPGA needed; placement-only validation).
+- **Software:** **Vivado 2019.2** found at `/tools/Xilinx/Vivado/2019.2`
+  (xc7a100t is a free WebPACK part). Required a `libtinfo.so.5 ->
+  libtinfo.so.6` shim on Ubuntu 24.04 (kernel 6.8) — Vivado 2019.2 predates
+  the libtinfo6 transition.
+- **Benchmarks:** new files `hw/rtl/tricorder_top.v` (port-complete stub
+  top, all 43 named ports / 75 pins, inputs folded into a heartbeat so
+  nothing is pruned) and `hw/scripts/validate_xdc.tcl`.
+
+### Key commands
+
+```bash
+ln -sf /lib/x86_64-linux-gnu/libtinfo.so.6 $SHIM/libtinfo.so.5
+LD_LIBRARY_PATH=$SHIM vivado -mode batch -nolog -nojournal \
+    -source hw/scripts/validate_xdc.tcl
+```
+
+## 3. Observations
+
+- `synth_design`, `opt_design`, `place_design` all completed:
+  **75/75 ports constrained and placed, 0 errors, 0 critical warnings,
+  1 benign warning; DRC: 0 violations.**
+- Both `create_clock` constraints (100 MHz sys, 24 MHz cam_pclk on SRCC pin
+  E15) were accepted; clock and input-delay constraints applied cleanly.
+- Whole run takes well under a minute on this machine — cheap enough to be
+  a CI gate.
+- **Vivado 2019.2 version limits discovered:** no MicroBlaze-V (RISC-V soft
+  core arrived ~2023.2 — entry 7's plan falls back to classic MicroBlaze
+  unless Vivado is upgraded), and partial reconfiguration in 2019.2 needs a
+  separate PR license (DFX became free in Vivado ML 2021.1+). **An upgrade
+  to a current Vivado (2023.2+) is strongly indicated for the DFX phase.**
+
+## 4. Data analysis
+
+The pin plan is now toolchain-proven, not just paper-checked: placement
+accepting all 75 LOCs confirms no package-pin typos, no I/O-bank conflicts
+at LVCMOS33, and legal clock routing for cam_pclk. The stub top doubles as
+the growing point for the real static region. The significant new risk is
+toolchain vintage: staying on 2019.2 means classic MicroBlaze and a PR
+license requirement, while upgrading buys MicroBlaze-V + free DFX at the
+cost of a multi-GB install — decision needed before the static-region block
+design.
+
+## 5. Ideas for future experiments
+
+- Decide: upgrade Vivado (2023.2+ / 2025.x) for free DFX + MicroBlaze-V, or
+  verify a PR license exists for 2019.2.
+- Wire `validate_xdc.tcl` into CI as the standing pin-plan gate.
+- Begin the static-region block design in the chosen Vivado version.
 
 ---
 
