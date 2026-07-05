@@ -6,6 +6,12 @@ chronological order (newest first). Each entry has the date and time
 
 ---
 
+## 5 Jul 2026 03:53:38
+
+> Try again, I just copied it over.
+
+---
+
 ## 5 Jul 2026 03:45:29
 
 > The parts list is in docs now, go find it.

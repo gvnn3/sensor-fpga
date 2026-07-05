@@ -17,10 +17,86 @@ or removed at runtime from the FPGA dynamic (partial reconfiguration) region.
 
 # Table of Contents
 
+5. [EXPERIMENT  5 Jul 2026 03:53:38 Tricorder Parts List Received (Artix-7 Target)](#5-jul-2026-035338) :complete:
 4. [EXPERIMENT  5 Jul 2026 03:41:44 Extraction of Shared Conversation: FPGA as a Sensor Platform](#5-jul-2026-034144) :complete:
 3. [EXPERIMENT  4 Jul 2026 07:34:03 OHWR Cores for the Dynamic Region of This Host (Alveo U250)](#4-jul-2026-073403) :complete:
 2. [EXPERIMENT  4 Jul 2026 07:26:08 Vitis Libraries Suitability for the FPGA Dynamic Region](#4-jul-2026-072608) :complete:
 1. [EXPERIMENT  4 Jul 2026 07:20:01 Repository and Notebook Initialization](#4-jul-2026-072001) :complete:
+
+---
+
+# EXPERIMENT  5 Jul 2026 03:53:38 Tricorder Parts List Received (Artix-7 Target) :complete:
+
+## 1. Hypothesis
+
+What sensors does the tricorder parts list (`docs/tricorder_parts.xlsx`,
+committed by George as 078441b "A list of parts for a tricorder projects
+with the Xilinx A7") specify, and how do they map onto static-region vs.
+dynamic-region (DFX) processing?
+
+## 2. How
+
+- **Equipment:** target board is a **Xilinx Artix-7** (per commit message) —
+  not the Alveo U250 surveyed in entry 3; the A7 board supplies the physical
+  sensor I/O the U250 lacks.
+- **Software:** xlsx parsed by unzipping and reading the sheet XML directly
+  (no openpyxl installed on this host).
+- **Benchmarks:** none.
+
+### Key commands
+
+```bash
+unzip -o tricorder_parts.xlsx -d /tmp/xlsx   # then parse xl/worksheets/sheet1.xml
+```
+
+## 3. Observations
+
+13 line items, **total $392** (prices dated 2026-07-05, mix of VERIFIED and
+ESTIMATE; unit prices editable, totals are formulas). The sheet itself
+categorizes parts as **"High-rate / DFX"** vs. "Low-rate / quality":
+
+| Category | Part | Qty | Total | Tricorder function |
+|---|---|---|---|---|
+| Low-rate | Adafruit BME688 #5046 (gas+T+RH+P, I2C) | 1 | $31.11 | air composition/environment |
+| Low-rate | Adafruit SCD-41 #5190 (NDIR true CO2, I2C) | 1 | $49.50 | atmospheric CO2 |
+| Low-rate | Adafruit VEML7700 #4162 (lux, I2C) | 1 | $7.24 | light scan |
+| Low-rate | Adafruit AS7341 #4698 (11-ch spectral, I2C) | 1 | $15.95 | crude spectroscopy |
+| **DFX** | Adafruit PDM MEMS mic #3492 | 6 | $29.70 | acoustic beamforming array |
+| Low-rate opt. | SparkFun MAX30105 #14045 (pulse-ox, I2C) | 1 | $19.50 | medical pulse/SpO2 |
+| **DFX** | AD9226 ADC module (12-bit 65 MS/s, Pmod) | 1 | $25 | EM/RF scan, sonar RX, transients |
+| **DFX** | AD9708 DAC module (8-bit 125 MS/s) | 1 | $20 | stimulus source / ultrasound TX |
+| **DFX** | OV7670 camera (DVP 640x480@30, no-FIFO version) | 1 | $8 | vision/motion |
+| **DFX** | onsemi MICROFC-SMA-10035 SiPM eval | 1 | $150 | photon counting/ToF (needs TLV3501 comparator) |
+| **DFX** | AD8332 VGA board (ultrasound AFE) | 1 | $30 | sonar/structure probing |
+| **DFX** | 40 kHz piezo pair (TX/RX) | 2 | $6 | pulse-echo sonar |
+
+## 4. Data analysis
+
+The sheet's own "High-rate / DFX" tag confirms the architecture direction:
+slow I2C environmental sensors (BME688, SCD-41, VEML7700, AS7341, MAX30105)
+belong in an always-present static-region I2C subsystem (or soft-CPU
+firmware, cf. Mock Turtle in entry 3), while the seven high-rate front ends
+(PDM mic array, AD9226, AD9708, OV7670, SiPM, AD8332, piezo) each demand a
+dedicated processing pipeline — exactly the per-sensor loadable DFX modules
+this project is about. The Artix-7 (commit message "Xilinx A7") resolves
+entry 4's open question of how physical sensors attach: the A7 board owns
+the front-end pins; DFX on 7-series is supported by Vivado (though with
+coarser reconfigurable-frame granularity than UltraScale+, and the smaller
+A7 makes partition sizing tighter). Candidate module sources line up:
+Vitis Vision (OV7670 pipeline), CIC/FIR decimators (PDM array beamforming),
+hls4ml classifier (acoustic/vision inference), OHWR-style TDC (SiPM photon
+timestamps), DDS + matched filter (AD9708/AD8332/piezo sonar).
+
+## 5. Ideas for future experiments
+
+- Identify the exact Artix-7 board (Arty A7? Nexys?) and its Pmod/DVP pin
+  budget vs. this sensor set.
+- Define the DFX partition boundary on the A7: one reconfigurable partition
+  with AXI4-Lite + AXI4-Stream, sized for the largest candidate module.
+- First swap pair: OV7670 capture pipeline vs. PDM 6-mic beamformer —
+  measure partition utilization and partial-bitstream load time via ICAP.
+- Static region: MicroBlaze/uRV + I2C for the low-rate sensors, running
+  regardless of which DFX module is loaded.
 
 ---
 
