@@ -6,6 +6,13 @@ chronological order (newest first). Each entry has the date and time
 
 ---
 
+## 5 Jul 2026 04:30:06
+
+> If I want to run this on the A7 does that have any sort of CPU on which to
+> run a typical program?
+
+---
+
 ## 5 Jul 2026 04:19:27
 
 > The spreadsheet is updated, re-read it.

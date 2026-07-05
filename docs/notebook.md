@@ -17,12 +17,74 @@ or removed at runtime from the FPGA dynamic (partial reconfiguration) region.
 
 # Table of Contents
 
+7. [EXPERIMENT  5 Jul 2026 04:30:06 CPU Options on the Artix-7](#5-jul-2026-043006) :complete:
 6. [EXPERIMENT  5 Jul 2026 04:11:47 Prototyping the Tricorder on the Alveo U250 Without the Artix-7](#5-jul-2026-041147) :complete:
 5. [EXPERIMENT  5 Jul 2026 03:53:38 Tricorder Parts List Received (Artix-7 Target)](#5-jul-2026-035338) :complete:
 4. [EXPERIMENT  5 Jul 2026 03:41:44 Extraction of Shared Conversation: FPGA as a Sensor Platform](#5-jul-2026-034144) :complete:
 3. [EXPERIMENT  4 Jul 2026 07:34:03 OHWR Cores for the Dynamic Region of This Host (Alveo U250)](#4-jul-2026-073403) :complete:
 2. [EXPERIMENT  4 Jul 2026 07:26:08 Vitis Libraries Suitability for the FPGA Dynamic Region](#4-jul-2026-072608) :complete:
 1. [EXPERIMENT  4 Jul 2026 07:20:01 Repository and Notebook Initialization](#4-jul-2026-072001) :complete:
+
+---
+
+# EXPERIMENT  5 Jul 2026 04:30:06 CPU Options on the Artix-7 :complete:
+
+## 1. Hypothesis
+
+Does the Artix-7 provide a CPU capable of running a typical program (the
+tricorder's control/UI/sensor-management software)?
+
+## 2. How
+
+- **Equipment:** target Artix-7 board (entry 5); exact board TBD, Arty
+  A7-100T assumed (xc7a100t, 256 MB DDR3).
+- **Software:** design analysis; Vivado/Vitis, LiteX, OHWR cores.
+- **Benchmarks:** none.
+
+### Key commands
+
+```bash
+# none run; candidate flows listed in section 4
+```
+
+## 3. Observations
+
+- Artix-7 is **pure FPGA fabric — no hard CPU**. (The 7-series part with a
+  hard CPU is Zynq-7000: dual Cortex-A9 + Artix-class fabric.)
+- A CPU must therefore be a **soft core** in the static region. Typical
+  clock ~100 MHz on A7; DDR3 on Arty A7 gives enough memory for an OS.
+- Candidates: Xilinx MicroBlaze / MicroBlaze-V (RISC-V, Vitis toolchain),
+  VexRiscv or NEORV32 via LiteX (Linux-capable with litedram), OHWR uRV /
+  Mock Turtle (entry 3 — deterministic real-time, no OS), PicoRV32 (tiny).
+
+## 4. Data analysis
+
+Yes in practice: a soft CPU in the static region runs the "typical program",
+and this dovetails with the DFX architecture — the soft CPU is the natural
+owner of the low-rate I2C sensors (entry 5), the UI/host link, and crucially
+the **ICAP controller for loading/unloading the DFX sensor modules**, making
+the tricorder self-reconfiguring without a PC. Options by need:
+
+| Need | Choice | Program environment |
+|---|---|---|
+| Bare-metal/FreeRTOS C, vendor-supported | MicroBlaze(-V) | Vitis SDK, newlib, ~100 MHz |
+| Full Linux (files, net, Python) | VexRiscv + LiteX | mainline-ish Linux on Arty A7, slow but real |
+| Hard real-time sensor firmware | uRV / Mock Turtle | per-node firmware, no OS jitter |
+
+Fabric cost on xc7a100t (~63k LUT): MicroBlaze or VexRiscv + DDR controller
++ peripherals ≈ 10-20% — leaves ample room for the DFX partition, but must
+be counted in the entry-6 partition budget. If Linux-class software is a
+hard requirement, switching the board to a Zynq-7000 (e.g., PYNQ-Z2, same
+price class, hard A9 + identical DFX story) is the cleaner path.
+
+## 5. Ideas for future experiments
+
+- Decide software tier: bare-metal MicroBlaze-V vs. LiteX/Linux vs. Zynq
+  board swap; prototype the choice on the U250 first (soft cores are
+  portable).
+- Measure ICAP-driven partial reconfiguration initiated from the soft CPU.
+- Out-of-context build: MicroBlaze-V + DDR3 + I2C + ICAP static region on
+  xc7a100t; record utilization to fix the DFX partition size.
 
 ---
 
