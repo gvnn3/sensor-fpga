@@ -17,6 +17,7 @@ or removed at runtime from the FPGA dynamic (partial reconfiguration) region.
 
 # Table of Contents
 
+9. [EXPERIMENT  5 Jul 2026 05:08:00 Master XDC for the Full Sensor Complement](#5-jul-2026-050800) :complete:
 8. [EXPERIMENT  5 Jul 2026 05:01:07 Board Decision: Arty A7-100T — Pin and Resource Budget](#5-jul-2026-050107) :complete:
 7. [EXPERIMENT  5 Jul 2026 04:30:06 CPU Options on the Artix-7](#5-jul-2026-043006) :complete:
 6. [EXPERIMENT  5 Jul 2026 04:11:47 Prototyping the Tricorder on the Alveo U250 Without the Artix-7](#5-jul-2026-041147) :complete:
@@ -25,6 +26,67 @@ or removed at runtime from the FPGA dynamic (partial reconfiguration) region.
 3. [EXPERIMENT  4 Jul 2026 07:34:03 OHWR Cores for the Dynamic Region of This Host (Alveo U250)](#4-jul-2026-073403) :complete:
 2. [EXPERIMENT  4 Jul 2026 07:26:08 Vitis Libraries Suitability for the FPGA Dynamic Region](#4-jul-2026-072608) :complete:
 1. [EXPERIMENT  4 Jul 2026 07:20:01 Repository and Notebook Initialization](#4-jul-2026-072001) :complete:
+
+---
+
+# EXPERIMENT  5 Jul 2026 05:08:00 Master XDC for the Full Sensor Complement :complete:
+
+## 1. Hypothesis
+
+Can the full entry-8 pin plan be expressed as a concrete, conflict-free XDC
+for the Arty A7-100T using only verified pin locations?
+
+## 2. How
+
+- **Equipment:** Arty A7-100T pinout (xc7a100tcsg324-1).
+- **Software:** Digilent `Arty-A7-100-Master.xdc` (Rev. D/E) fetched from
+  github.com/Digilent/digilent-xdc as the LOC ground truth; every pin in our
+  file copied from it, none from memory.
+- **Benchmarks:** duplicate-pin check via grep/uniq.
+
+### Key commands
+
+```bash
+curl -sL -O https://raw.githubusercontent.com/Digilent/digilent-xdc/master/Arty-A7-100-Master.xdc
+grep -oE 'PACKAGE_PIN [A-V][0-9]+' hw/constraints/tricorder-arty-a7-100t.xdc | sort | uniq -d  # -> empty
+```
+
+## 3. Observations
+
+Wrote `hw/constraints/tricorder-arty-a7-100t.xdc`: **75 pin assignments, no
+duplicates**. Final allocation (refines entry 8):
+
+| Interface | Pins | Location | Notes |
+|---|---|---|---|
+| Board infra (clk, UART, 4 btn, 4 sw, 4 LED, RGB0) | 17 | fixed | RGB LED 0 = DFX status |
+| I2C bus + pull-up enables | 4 | ck_scl/sda + scl/sda_pup | Arty has on-board pull-up enable pins |
+| PDM array (clk + 6 data) | 7 | JA | ja[10] spare |
+| OV7670 (ctrl/SCCB + 8 data) | 16 | JB + JC | PCLK on clock-capable E15 (SRCC); input clock + delays constrained, async to sys_clk |
+| AD9226 (12 data + OTR + clk) | 14 | ck_io0-13 | OTR (out-of-range) pin gained a home; clk on MRCC P17 |
+| AD9708 (8 data + clk) | 9 | JD + ck_io26 | 200 Ω on JD acceptable for DAC data |
+| SiPM (pulse + threshold PWM) | 2 | ck_io33/34 | pulse on clock-capable P15 |
+| AD8332 ctrl (gain PWM, hi/lo, en) | 3 | ck_io35-37 | RX signal enters via AD9226 |
+| Piezo TX pair | 2 | ck_io38/39 | push-pull via external driver |
+| **Total** | **74** + CFGBVS/CONFIG_VOLTAGE | | Spares: ck_io27-32, 40/41, ck_a0-a11, SPI (reserved for display), XADC vaux12 |
+
+## 4. Data analysis
+
+The full complement fits with 15+ digital spares remaining, confirming entry
+8's budget with real pins. Design choices encoded in the file: camera PCLK
+and SiPM pulse sit on clock-capable (SRCC/MRCC) pins; the AD9226 got the
+resistor-free ChipKit header including its OTR flag; only static-region pins
+are constrained — the DFX boundary is internal AXI and needs no XDC. Timing
+honesty: only sys_clk and cam_pclk have clock constraints so far; AD9226
+capture is system-synchronous with derating expected over jumpers (input
+delays to be added after entry-8's max-rate measurement).
+
+## 5. Ideas for future experiments
+
+- Validate with Vivado: `read_xdc` against an empty top with matching ports
+  (catches typos grep cannot).
+- Add AD9226 input delays once the derated sample rate is measured.
+- Static-region block design (MicroBlaze-V + MIG + EthernetLite + I2C +
+  ICAP) consuming this XDC; out-of-context build to fix the DFX pblock.
 
 ---
 
