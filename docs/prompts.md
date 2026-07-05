@@ -6,6 +6,13 @@ chronological order (newest first). Each entry has the date and time
 
 ---
 
+## 5 Jul 2026 04:11:47
+
+> Can the Tricorder be prototyped on this larger board without access to the
+> A7?
+
+---
+
 ## 5 Jul 2026 03:53:38
 
 > Try again, I just copied it over.

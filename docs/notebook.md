@@ -17,11 +17,77 @@ or removed at runtime from the FPGA dynamic (partial reconfiguration) region.
 
 # Table of Contents
 
+6. [EXPERIMENT  5 Jul 2026 04:11:47 Prototyping the Tricorder on the Alveo U250 Without the Artix-7](#5-jul-2026-041147) :complete:
 5. [EXPERIMENT  5 Jul 2026 03:53:38 Tricorder Parts List Received (Artix-7 Target)](#5-jul-2026-035338) :complete:
 4. [EXPERIMENT  5 Jul 2026 03:41:44 Extraction of Shared Conversation: FPGA as a Sensor Platform](#5-jul-2026-034144) :complete:
 3. [EXPERIMENT  4 Jul 2026 07:34:03 OHWR Cores for the Dynamic Region of This Host (Alveo U250)](#4-jul-2026-073403) :complete:
 2. [EXPERIMENT  4 Jul 2026 07:26:08 Vitis Libraries Suitability for the FPGA Dynamic Region](#4-jul-2026-072608) :complete:
 1. [EXPERIMENT  4 Jul 2026 07:20:01 Repository and Notebook Initialization](#4-jul-2026-072001) :complete:
+
+---
+
+# EXPERIMENT  5 Jul 2026 04:11:47 Prototyping the Tricorder on the Alveo U250 Without the Artix-7 :complete:
+
+## 1. Hypothesis
+
+Can the tricorder design (entry 5) be prototyped on this host's Alveo U250
+before the Artix-7 board and sensors are in hand?
+
+## 2. How
+
+- **Equipment:** Alveo U250 in this host (entry 3: OpenNIC shell flashed,
+  Vitis XDMA DFX platform installed); no sensor hardware present.
+- **Software:** analysis against entries 3-5; Vivado/Vitis DFX flows.
+- **Benchmarks:** none (design analysis).
+
+### Key commands
+
+```bash
+# none run; proposed flows referenced in section 4
+```
+
+## 3. Observations
+
+- The U250 dynamic region receives only AXI4-Lite + AXI4-MM (XDMA shell) or
+  AXI4-Stream packet ports (OpenNIC); **no external pins** — none of the 13
+  BOM parts can attach physically (no Pmod, DVP, I2C header, or analog I/O).
+- Everything *behind* the front-end pins is plain streaming RTL/HLS: the
+  seven DFX sensor pipelines consume sample streams (PDM bits, pixels, ADC
+  words, photon timestamps) that can equally come from host DMA.
+- DFX mechanics exist on both devices but differ: UltraScale+ (U250) vs.
+  7-series (A7) have different reconfiguration frame granularity, ICAP
+  bandwidth, and DFX controller behavior — absolute numbers won't transfer.
+- A7 *fit* can be checked without any hardware: Vivado synthesizes/implements
+  for an Artix-7 part out of context from just the RTL.
+
+## 4. Data analysis
+
+Yes — as a **processing-first prototype with emulated sensors**; the only
+things that cannot be prototyped are the physical front ends themselves.
+Practical split:
+
+| Prototypable on U250 now | Not prototypable without A7/sensors |
+|---|---|
+| All 7 DFX pipeline modules (beamformer, vision, TDC, sonar DSP, hls4ml) fed by host-DMA'd recorded/synthetic streams at real sample rates | Analog front-end behavior (AD9226/AD8332/SiPM signal quality) |
+| Full DFX lifecycle: partition, partial bitstreams, runtime load/swap, SDB discovery, host tooling | I/O timing closure: DVP capture, PDM clocking, I2C bring-up |
+| Module-boundary spec (AXI4-Lite + AXI4-Stream) — identical wrapper reused on A7 | A7 partition fit/timing (but checkable via A7 out-of-context builds, no board needed) |
+| Sensor bus-functional models (PDM bitstream gen, DVP pixel player, SiPM pulse statistics, echo models) — become the A7 verification testbench | Real-world latency of sensor→pin→pipeline path |
+
+A hybrid is also available: real sensors on any cheap MCU/small-FPGA board
+streaming over Ethernet into the OpenNIC 250 MHz user box, so live data
+reaches U250-resident modules before the A7 exists. Main risk to track:
+U250's abundance hides A7 scarcity — every module must carry an A7
+out-of-context utilization report as a gate.
+
+## 5. Ideas for future experiments
+
+- Stand up the XDMA DFX platform: one reconfigurable partition, hello-world
+  module pair, measure swap time on UltraScale+ as a baseline.
+- Build the sensor-emulator host tool (replay PDM/DVP/ADC traces via DMA at
+  true rates).
+- CI gate: `synth_design -mode out_of_context -part xc7a100t...` for every
+  module; fail if utilization exceeds the planned A7 partition.
+- Pick the A7 board (Arty A7-100T likely) to fix the partition budget.
 
 ---
 
