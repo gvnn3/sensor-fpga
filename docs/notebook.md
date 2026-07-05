@@ -121,6 +121,13 @@ unzip -o tricorder_parts.xlsx -d /tmp/xlsx   # then parse xl/worksheets/sheet1.x
 ESTIMATE; unit prices editable, totals are formulas). The sheet itself
 categorizes parts as **"High-rate / DFX"** vs. "Low-rate / quality":
 
+*Revision (5 Jul 2026 04:19, commit 568ed36 "Updated with the columns
+fixed."):* the original file had a mis-aligned Price Status column (URLs
+shifted into it); the fixed sheet shows only **BME688 and VEML7700 are
+VERIFIED** (DigiKey, Jul 2026) — all other prices are ESTIMATEs to confirm
+before ordering, incl. the $150 SiPM eval (hobby SiPM alternative $30-60).
+Parts, quantities, and the $392 total are unchanged.
+
 | Category | Part | Qty | Total | Tricorder function |
 |---|---|---|---|---|
 | Low-rate | Adafruit BME688 #5046 (gas+T+RH+P, I2C) | 1 | $31.11 | air composition/environment |
