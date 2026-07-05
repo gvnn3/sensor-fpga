@@ -6,6 +6,35 @@ chronological order (newest first). Each entry has the date and time
 
 ---
 
+## 5 Jul 2026 03:41:44
+
+> *(Pasted transcript of the claude.ai share link from the previous prompt —
+> a separate Claude conversation titled roughly "FPGA as a sensor platform".
+> Extracted content recorded in notebook entry 4. Transcript excerpts:)*
+>
+> Treat the FPGA as a sensor platform. What are good examples of data that
+> needs low latency processing and to which an FPGA's customizable circuitry
+> would be most useful.
+>
+> [Claude's answer: RF/SDR, network packet streams, machine vision,
+> physics instrumentation, control loops]
+>
+> Are there already open source libraries of such circuits? Prioritize non
+> network solutions for now. Physics and vision and real world sensors take
+> priority.
+>
+> [Claude's answer: OHWR, hls4ml, FINN, Vitis Vision, PYNQ, Vitis DSP,
+> LiteX/FuseSoC, ZipCPU cores]
+>
+> Provide a bibliography of papers that are published on these libraries or
+> with them. Give links to papers and repositories in the vivl
+>
+> [Result: 14-entry BibTeX bibliography ("Fpga sensor libs" BIB artifact,
+> not included in the paste); also a "Tricorder parts" XLSX with
+> Adafruit-prioritized sensor parts list, not included in the paste]
+
+---
+
 ## 5 Jul 2026 03:38:27
 
 > Look at this link, can you extract the information from it

@@ -17,9 +17,95 @@ or removed at runtime from the FPGA dynamic (partial reconfiguration) region.
 
 # Table of Contents
 
+4. [EXPERIMENT  5 Jul 2026 03:41:44 Extraction of Shared Conversation: FPGA as a Sensor Platform](#5-jul-2026-034144) :complete:
 3. [EXPERIMENT  4 Jul 2026 07:34:03 OHWR Cores for the Dynamic Region of This Host (Alveo U250)](#4-jul-2026-073403) :complete:
 2. [EXPERIMENT  4 Jul 2026 07:26:08 Vitis Libraries Suitability for the FPGA Dynamic Region](#4-jul-2026-072608) :complete:
 1. [EXPERIMENT  4 Jul 2026 07:20:01 Repository and Notebook Initialization](#4-jul-2026-072001) :complete:
+
+---
+
+# EXPERIMENT  5 Jul 2026 03:41:44 Extraction of Shared Conversation: FPGA as a Sensor Platform :complete:
+
+## 1. Hypothesis
+
+What background research does the shared claude.ai conversation
+(https://claude.ai/share/3ff13c9b-f27d-47c6-ba76-99bd91a29c7b) contain that
+is relevant to this project? (Direct fetch failed — client-side rendering +
+Cloudflare; content obtained by pasting the transcript.)
+
+## 2. How
+
+- **Equipment:** none (transcript extraction)
+- **Software:** transcript pasted by George on 5 Jul 2026; full excerpt in
+  `docs/prompts.md` (entry 5 Jul 2026 03:41:44)
+- **Benchmarks:** none
+
+### Key commands
+
+```bash
+# Both fetch attempts failed before the paste:
+#   WebFetch https://claude.ai/share/3ff13c9b-...  -> SPA shell only
+#   curl https://claude.ai/api/chat_snapshots/...  -> Cloudflare challenge
+```
+
+## 3. Observations
+
+The conversation covered three questions:
+
+**(a) Sensor data classes where FPGA custom circuitry pays off** — common
+thread: fixed dataflow, fine-grained parallelism, hard deadlines that an
+interrupt-driven CPU path (~10 µs floor, jitter) cannot meet:
+
+| Domain | Data / task | Latency scale |
+|---|---|---|
+| RF / SDR, radar | ADC streams (100s MS/s–GS/s); DDC, FFT, matched filter, pulse compression | keep up with ADC, deterministic |
+| Machine vision | per-pixel Bayer demosaic, defect correction, blob/edge, pre-DRAM | control loops in tens of µs |
+| Physics instrumentation | detector L1 triggers (LHC: keep/discard on TB/s), photon counting, TDC | ~µs decisions, **sub-ns** timestamps |
+| Control loops | current sensing → PWM, adaptive optics, plasma control | **< 1 µs**, jitter-free |
+| (Deprioritized) networks | line-rate 100G+ filtering, HFT tick-to-trade | sub-µs |
+
+**(b) Open-source circuit libraries** (physics/vision prioritized over
+network): CERN **OHWR** (TDC cores, FMC ADC/DAC gateware, White Rabbit),
+**hls4ml** (NN → HLS for ~100 ns–1 µs trigger inference), **FINN** (AMD,
+quantized-NN dataflow), **Vitis Vision** (Apache-2.0 OpenCV-equivalent HLS
+kernels), **PYNQ overlays**, **Vitis DSP** (FFT/FIR/CORDIC), **LiteX** /
+Migen/Amaranth + **FuseSoC** packaging, **ZipCPU** formally verified
+FFT/filter cores. Caveat from the conversation: outside OHWR and the Vitis
+libraries, quality drops fast; OpenCores is "scavenging territory".
+
+**(c) Artifacts produced there but NOT included in the paste:** a 14-entry
+BibTeX bibliography ("Fpga sensor libs", with verified entries: Duarte 2018
+JINST 13 P07027; Schulte 2026 TRETS hls4ml; FINN FPGA'17; FINN-R TRETS 2018;
+White Rabbit ISPCS 2009/2011; LiteX arXiv:2005.02506; FuseSoC OSDA 2019;
+flagged-unverified: Fahim 2021 hls4ml codesign, FINN-R DOI, OHWR/ICALEPCS
+per-core papers) and a "Tricorder parts" XLSX (Adafruit-first sensor BOM
+incl. AD9226 ADC, AD9708 DAC, OV7670 camera, MAX30105, SiPM, AD8332 AFE,
+piezo transducers).
+
+## 4. Data analysis
+
+The conversation converges with notebook entries 2–3: OHWR + Vitis libraries
+are the two defensible open-source pools, now motivated from the *workload*
+side (physics timing, vision pipelines, tight control loops). New additions
+to our candidate list are the ML-inference generators (**hls4ml**, **FINN**)
+— attractive for the dynamic region because each trained sensor model
+compiles to a self-contained streaming dataflow core, a natural per-sensor
+reconfigurable module. The tricorder BOM implies analog front-ends (ADC,
+camera, pulse-ox, SiPM) that the Alveo U250 cannot attach directly (entry
+3's I/O constraint) — a carrier/mezzanine or a second, I/O-capable board
+would be needed for real front-ends, with the U250 doing the heavy
+processing.
+
+## 5. Ideas for future experiments
+
+- Obtain the actual BibTeX file and XLSX from the original conversation and
+  commit them under `docs/` (bibliography.bib, tricorder-parts).
+- Trial hls4ml: train a small model, generate an HLS core, synthesize for
+  `xcu250`, and measure resources vs. a DFX partition budget.
+- Compare a Vitis Vision pipeline vs. an hls4ml classifier as the first two
+  swappable "sensor programs".
+- Decide how physical sensors attach (separate I/O board + network into the
+  U250 OpenNIC path vs. a different carrier with FMC).
 
 ---
 
