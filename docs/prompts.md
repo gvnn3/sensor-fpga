@@ -6,6 +6,12 @@ chronological order (newest first). Each entry has the date and time
 
 ---
 
+## 5 Jul 2026 05:01:07
+
+> Pick the exact A7 board, assume the Arty A7-100T.
+
+---
+
 ## 5 Jul 2026 04:58:12
 
 > FreeRTOS is fine fro this application.

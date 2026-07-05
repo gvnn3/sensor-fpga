@@ -17,6 +17,7 @@ or removed at runtime from the FPGA dynamic (partial reconfiguration) region.
 
 # Table of Contents
 
+8. [EXPERIMENT  5 Jul 2026 05:01:07 Board Decision: Arty A7-100T — Pin and Resource Budget](#5-jul-2026-050107) :complete:
 7. [EXPERIMENT  5 Jul 2026 04:30:06 CPU Options on the Artix-7](#5-jul-2026-043006) :complete:
 6. [EXPERIMENT  5 Jul 2026 04:11:47 Prototyping the Tricorder on the Alveo U250 Without the Artix-7](#5-jul-2026-041147) :complete:
 5. [EXPERIMENT  5 Jul 2026 03:53:38 Tricorder Parts List Received (Artix-7 Target)](#5-jul-2026-035338) :complete:
@@ -24,6 +25,87 @@ or removed at runtime from the FPGA dynamic (partial reconfiguration) region.
 3. [EXPERIMENT  4 Jul 2026 07:34:03 OHWR Cores for the Dynamic Region of This Host (Alveo U250)](#4-jul-2026-073403) :complete:
 2. [EXPERIMENT  4 Jul 2026 07:26:08 Vitis Libraries Suitability for the FPGA Dynamic Region](#4-jul-2026-072608) :complete:
 1. [EXPERIMENT  4 Jul 2026 07:20:01 Repository and Notebook Initialization](#4-jul-2026-072001) :complete:
+
+---
+
+# EXPERIMENT  5 Jul 2026 05:01:07 Board Decision: Arty A7-100T — Pin and Resource Budget :complete:
+
+## 1. Hypothesis
+
+**DECISION (George):** the tricorder target board is the **Digilent Arty
+A7-100T**. Does its I/O and fabric budget accommodate the entry-5 sensor set
+(all front ends wired simultaneously) plus the entry-7 static region
+(MicroBlaze(-V) + FreeRTOS) and a useful DFX partition?
+
+## 2. How
+
+- **Equipment:** Digilent Arty A7-100T: XC7A100T-1CSG324C (63,400 LUT /
+  126,800 FF / 135 BRAM36 / 240 DSP48E1), 256 MB DDR3L (16-bit), 100 MHz
+  osc, 10/100 Ethernet PHY, USB-UART/JTAG, 4x Pmod (JA/JD standard with
+  200 Ω series protection, JB/JC high-speed direct), ChipKit/Arduino shield
+  header (~45 digital I/O incl. dedicated I2C, plus XADC analog inputs).
+  Figures from the Digilent reference manual, to be re-verified at design
+  entry.
+- **Software:** desk analysis against notebook entries 5-7.
+- **Benchmarks:** none.
+
+### Key commands
+
+```bash
+# none run; budget analysis only
+```
+
+## 3. Observations
+
+Pin plan — wiring is a **static-region resource**: every physically attached
+front end consumes pins permanently, even though only one DFX processing
+module is loaded at a time.
+
+| Front end | Pins | Placement |
+|---|---|---|
+| I2C bus (BME688, SCD-41, VEML7700, AS7341, MAX30105) | 2 | shield SCL/SDA |
+| PDM mic array (6 mics, shared clock, L/R paired) | 4-7 | 1 Pmod (JA) |
+| OV7670 DVP (8 data, PCLK/HREF/VSYNC/XCLK, SCCB, rst/pwdn) | ~14-16 | JB+JC (high-speed pair, the standard Arty OV7670 hookup) |
+| AD9226 ADC (12 data + clk) | 13 | shield header |
+| AD9708 DAC (8 data + clk) | 9 | JD + shield spill |
+| SiPM via TLV3501 (pulse + PWM threshold) | 2 | shield |
+| AD8332 gain ctrl (piezo RX goes through AD9226) | 2-3 | shield |
+| **Total** | **~46-52** | vs. 32 Pmod + ~45 shield ≈ **77 available** |
+
+Fabric budget: static region (MicroBlaze + MIG DDR3 ≈ 6k + EthernetLite +
+I2C + ICAP/DFX controller + UART/SPI ≈ 12-18k LUT total) leaves roughly
+**40k LUT, ~150-200 DSP, ~90-100 BRAM36 for the DFX partition** — larger
+than any single candidate sensor pipeline from entry 5.
+
+Constraints noted: JA/JD 200 Ω series resistors cap toggle rates (fine for
+PDM/DAC clocking at tens of MHz, marginal for AD9226 at 65 MS/s — hence
+AD9226 on the shield header); Ethernet is only 10/100 (U250 streaming link
+per entry 6 will bottleneck there); XADC (1 MS/s, 12-bit) is a free extra
+"sensor" for battery/AFE monitoring; DFX for 7-series is included in the
+free Vivado ML Standard license.
+
+## 4. Data analysis
+
+The Arty A7-100T fits with margin: ~46-52 static pins against ~77 available,
+and a DFX partition of roughly two-thirds of the fabric. The deciding
+allocation is giving the OV7670 both high-speed Pmods (JB/JC) and routing
+the AD9226's 65 MS/s parallel bus to the series-resistor-free shield pins.
+Everything can stay wired at once, so "loading a sensor" is purely a DFX
+module swap plus enabling the front end — no re-cabling, which is the
+demo behavior the project wants. Residual risks: AD9226 signal integrity
+over shield jumpers at full 65 MS/s (may need to derate to ~20-40 MS/s),
+and the exact shield pin count/XDC assignments need verification against
+the Digilent master XDC before committing a constraints file.
+
+## 5. Ideas for future experiments
+
+- Write the master pin-assignment XDC for the full sensor complement and
+  check it against Digilent's Arty-A7-100 master XDC.
+- Entry-6 CI gate now has a concrete part: `xc7a100tcsg324-1`, partition
+  budget ≈ 40k LUT / 90 BRAM / 150 DSP.
+- Floorplan the DFX pblock: right-half die, keeping MIG + PHY-adjacent
+  banks in the static region.
+- Measure AD9226 max reliable sample rate over the shield header.
 
 ---
 
