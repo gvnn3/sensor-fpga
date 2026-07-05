@@ -77,6 +77,10 @@ be counted in the entry-6 partition budget. If Linux-class software is a
 hard requirement, switching the board to a Zynq-7000 (e.g., PYNQ-Z2, same
 price class, hard A9 + identical DFX story) is the cleaner path.
 
+**DECISION (5 Jul 2026 04:58:12, George):** FreeRTOS is sufficient for this
+application. Software tier fixed: **MicroBlaze(-V) + FreeRTOS** in the
+static region; no Linux requirement, Artix-7 target stands (no Zynq swap).
+
 ## 5. Ideas for future experiments
 
 - Decide software tier: bare-metal MicroBlaze-V vs. LiteX/Linux vs. Zynq

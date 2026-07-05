@@ -6,6 +6,12 @@ chronological order (newest first). Each entry has the date and time
 
 ---
 
+## 5 Jul 2026 04:58:12
+
+> FreeRTOS is fine fro this application.
+
+---
+
 ## 5 Jul 2026 04:30:06
 
 > If I want to run this on the A7 does that have any sort of CPU on which to
