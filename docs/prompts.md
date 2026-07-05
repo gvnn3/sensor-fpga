@@ -6,6 +6,12 @@ chronological order (newest first). Each entry has the date and time
 
 ---
 
+## 5 Jul 2026 03:45:29
+
+> The parts list is in docs now, go find it.
+
+---
+
 ## 5 Jul 2026 03:41:44
 
 > *(Pasted transcript of the claude.ai share link from the previous prompt —
