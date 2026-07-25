@@ -6,6 +6,13 @@ chronological order (newest first). Each entry has the date and time
 
 ---
 
+## 25 Jul 2026 10:05:00
+
+> Describe and document how to run the demo.  Commit that as a separate
+> demo.md in the docs directory.
+
+---
+
 ## 25 Jul 2026 09:50:00
 
 > keep going / Continue
