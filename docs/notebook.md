@@ -17,6 +17,7 @@ or removed at runtime from the FPGA dynamic (partial reconfiguration) region.
 
 # Table of Contents
 
+11. [EXPERIMENT 24 Jul 2026 22:31:09 Board Retarget Plan: Nexys A7-100T (Ultracode Multi-Agent Planning)](#24-jul-2026-223109) :complete:
 10. [EXPERIMENT  5 Jul 2026 05:14:19 Vivado Validation of the Master XDC](#5-jul-2026-051419) :complete:
 9. [EXPERIMENT  5 Jul 2026 05:08:00 Master XDC for the Full Sensor Complement](#5-jul-2026-050800) :complete:
 8. [EXPERIMENT  5 Jul 2026 05:01:07 Board Decision: Arty A7-100T — Pin and Resource Budget](#5-jul-2026-050107) :complete:
@@ -27,6 +28,93 @@ or removed at runtime from the FPGA dynamic (partial reconfiguration) region.
 3. [EXPERIMENT  4 Jul 2026 07:34:03 OHWR Cores for the Dynamic Region of This Host (Alveo U250)](#4-jul-2026-073403) :complete:
 2. [EXPERIMENT  4 Jul 2026 07:26:08 Vitis Libraries Suitability for the FPGA Dynamic Region](#4-jul-2026-072608) :complete:
 1. [EXPERIMENT  4 Jul 2026 07:20:01 Repository and Notebook Initialization](#4-jul-2026-072001) :complete:
+
+---
+
+# EXPERIMENT 24 Jul 2026 22:31:09 Board Retarget Plan: Nexys A7-100T (Ultracode Multi-Agent Planning) :complete:
+
+## 1. Hypothesis
+
+**DECISION (George):** the tricorder target board changes from the Arty
+A7-100T to the **Digilent Nexys A7** (one is connected to this host). Can
+the full sensor complement (entries 5, 8) be replanned onto the Nexys A7's
+much smaller header I/O budget, and what else must change?
+
+## 2. How
+
+- **Equipment:** Nexys A7-100T (XC7A100T-1CSG324C — same die/package/speed
+  as the Arty) attached via FT2232 (`lsusb` 0403:6010; /dev/ttyUSB0 = JTAG
+  side, /dev/ttyUSB1 = UART).
+- **Software:** Claude Code ultracode Workflow, 8 agents in 3 phases:
+  Recon (Nexys A7 fact sheet from Digilent reference manual + master XDC;
+  repo audit of `hw/`; host toolchain audit) → Plan (pin map, architecture,
+  roadmap) → Verify (2 adversarial reviewers refuting claims against the
+  Digilent master XDC and each other).
+- **Benchmarks:** none (planning); pin claims cross-checked against
+  `Nexys-A7-100T-Master.xdc` fetched from github.com/Digilent/digilent-xdc.
+
+### Key commands
+
+```bash
+git checkout -b gnn-a7-tricorder
+lsusb | grep -i ftdi          # FT2232 present -> board attached
+# Workflow: 3 recon + 3 plan + 2 verify agents; results reconciled into docs/plan.md
+```
+
+## 3. Observations
+
+- Header I/O supply: **40 pins total** (JA–JD = 32 @ 200 Ω series, JXADC =
+  8 @ 100 Ω, coupled pairs) vs. Arty sensor demand of **55** — shortfall 15.
+- **JB10 (H16, `IO_L13P_T2_MRCC_15`) is the only P-side clock-capable pin
+  on any header.** JB2/JB3/JB7/JD10 are CC but N-side (single-ended clocks
+  there need `CLOCK_DEDICATED_ROUTE` waivers).
+- Host toolchain changed: `/usr/local/cad` no longer holds Xilinx tools
+  (now an ACT/async toolchain); the **only install is
+  `/home/gnn/Vivado/2025.2`** (Vivado + Vitis). Entry-10's 2023.1 is gone.
+- Nexys A7 vs Arty deltas: 128 MB **DDR2** (not DDR3; MIG 7 supports it,
+  pins via Digilent MIG UCF import — not in master XDC), **RMII** PHY (MII
+  `mii_to_rmii` IP deprecated/gone in 2025.2), no shield header, no I2C
+  pull-up enables; gains: on-board PDM mic (ADMP421), ADT7420, ADXL362,
+  16 sw/16 LED, 8-digit 7-seg, 12-bit VGA, audio PWM, microSD.
+- Adversarial verify caught **9 issues (4 REFUTED)** in the planners' drafts:
+  three mutually incompatible pin strategies; "cam_pclk on JB3" (N-side —
+  invalid without waiver); a Personality-A packing that put 9 signals on an
+  8-pin connector; QSPI slot math (9 slots @ 4 MiB spacing in 12 MiB);
+  OV7670 bandwidth understated 2× (18.4 MB/s RGB565, not 9.2); stale local
+  Nexys XDC copy with LVDS JXADC lines; CPU choice drifting between
+  MicroBlaze classic and -V across sections.
+
+## 4. Data analysis
+
+The reconciled plan (committed as `docs/plan.md`) keeps **every sensing
+modality simultaneously wired except the AD9708 DAC**, which time-shares
+the AD9226's 13 pins through static-region IOBUFs (aligned with DFX: ADC
+and DAC personalities never coexist). The 15-pin shortfall closes via:
+SCCB merged onto the sensor I2C bus (−2), camera RST/PWDN strapped (−2),
+ADC OTR dropped for fabric rail-detection (−1), AFE enable strapped (−1),
+DAC sharing (−9), pull-up-enable ports deleted (−2). Result: **40/40 pins,
+zero header spares**; cam_pclk takes the board's single clean clock input
+(JB10/H16); SiPM pulse is 4× oversampled at 400 MHz instead of clocked;
+AD9226 derated to **≤40 MS/s** behind the 200 Ω series resistors. The
+verify phase proved its worth — the planners' three sections could not
+have been implemented together; reconciliation rule was "the XDC-grounded
+pin plan wins". Toolchain standardizes on Vivado/Vitis 2025.2 (sole
+install), which also reopens **MicroBlaze-V** (plan recommends it per the
+entry-7 decision, ratify at M2). Roadmap M0–M7 ordered by risk retirement:
+blinky/JTAG → XDC + validate gate (both boards, as 2025.2 control) →
+static BD + hello → DDR2 MIG → FreeRTOS + I2C scan → DFX hello-swap →
+PDM beamformer RM → ultrasound RM + swap demo.
+
+## 5. Ideas for future experiments
+
+- M0: George runs the 2025.2 cable-driver udev installer (sudo), then
+  blinky via hw_server; 10-min check that DFX is license-free in 2025.2.
+- M1: write `hw/constraints/tricorder-nexys-a7-100t.xdc` + per-board top
+  wrappers; parameterize `validate_xdc.tcl` (`-tclargs <board>`, nonzero
+  exit on DRC); re-run the Arty XDC under 2025.2 as a control.
+- Write the ~100-line MII↔RMII shim RTL (replaces the deprecated IP).
+- Measure the real AD9226 max rate through the 200 Ω Pmod at M7; watch
+  adc_clk↔pdm_data[5] coupling on the JXADC pair (swap with JA10 if noisy).
 
 ---
 

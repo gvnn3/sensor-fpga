@@ -6,6 +6,14 @@ chronological order (newest first). Each entry has the date and time
 
 ---
 
+## 24 Jul 2026 22:10:00
+
+> Read the docs directory, using ultracode plan the project and describe the
+> plan here.  Work in a new branch gnn-a7-tricorder.  The target board is the
+> NEXYS A7 and one is connected to this host.
+
+---
+
 ## 5 Jul 2026 05:33:22
 
 > This host has 2025.2
