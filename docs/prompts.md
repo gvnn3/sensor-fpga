@@ -6,6 +6,16 @@ chronological order (newest first). Each entry has the date and time
 
 ---
 
+## 25 Jul 2026 09:50:00
+
+> keep going / Continue
+> *(several continuation prompts through the M4-M7 gate runs and the
+> integrated demo: "keep going until all M gates pass", "Do not make me
+> tell you to keep going, just go. Do not stpo until al M gates pass.",
+> "keep going until done", "keep going", "Continue")*
+
+---
+
 ## 25 Jul 2026 00:45:00
 
 > Kill the3 sub shells, figure out why they were stuc, and then complete all

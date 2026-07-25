@@ -1,0 +1,24 @@
+# Integrated demo: full config A + staged partials + FreeRTOS app with the
+# dfx rotation task. Usage: xsdb hw/scripts/run_rtos_dfx.xsdb
+
+connect
+targets -set -filter {name =~ "xc7a100t*"}
+fpga build/dfx/full_a.bit
+after 1000
+targets -set -filter {name =~ "*MicroBlaze*#0*"}
+catch {stop}
+
+puts "staging partials in DDR2"
+dow -data build/dfx/rm_a_partial.bin     0x81000000
+dow -data build/dfx/rm_b_partial.bin     0x82000000
+dow -data build/dfx/rm_pdm_partial.bin   0x83000000
+dow -data build/dfx/rm_sonar_partial.bin 0x84000000
+mwr 0x80FFFFF0 [file size build/dfx/rm_a_partial.bin]
+mwr 0x80FFFFF4 [file size build/dfx/rm_b_partial.bin]
+mwr 0x80FFFFEC [file size build/dfx/rm_pdm_partial.bin]
+mwr 0x80FFFFE8 [file size build/dfx/rm_sonar_partial.bin]
+
+dow build/vitis-ws/tricorder_rtos/build/tricorder_rtos.elf
+con
+puts "RTOS_DFX: running"
+disconnect

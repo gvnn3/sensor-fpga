@@ -17,6 +17,7 @@ or removed at runtime from the FPGA dynamic (partial reconfiguration) region.
 
 # Table of Contents
 
+20. [EXPERIMENT 25 Jul 2026 09:55:00 Integrated Demo: FreeRTOS Rotates All Four DFX Personalities + CI Targets](#25-jul-2026-095500) :complete:
 19. [EXPERIMENT 25 Jul 2026 09:30:00 M7: Sonar RM + Full Runtime Swap Demo (Ranging Pending Harness)](#25-jul-2026-093000) :complete:
 18. [EXPERIMENT 25 Jul 2026 09:28:00 M6: PDM Pipeline RM — Live Audio from the On-Board Mic via DFX Swap](#25-jul-2026-092800) :complete:
 17. [EXPERIMENT 25 Jul 2026 09:26:00 M5: MicroBlaze-Driven DFX Swaps at 390 ms — HWICAP Broken, Raw ICAPE2 Writer Works](#25-jul-2026-092600) :complete:
@@ -36,6 +37,76 @@ or removed at runtime from the FPGA dynamic (partial reconfiguration) region.
 3. [EXPERIMENT  4 Jul 2026 07:34:03 OHWR Cores for the Dynamic Region of This Host (Alveo U250)](#4-jul-2026-073403) :complete:
 2. [EXPERIMENT  4 Jul 2026 07:26:08 Vitis Libraries Suitability for the FPGA Dynamic Region](#4-jul-2026-072608) :complete:
 1. [EXPERIMENT  4 Jul 2026 07:20:01 Repository and Notebook Initialization](#4-jul-2026-072001) :complete:
+
+---
+
+# EXPERIMENT 25 Jul 2026 09:55:00 Integrated Demo: FreeRTOS Rotates All Four DFX Personalities + CI Targets :complete:
+
+## 1. Hypothesis
+
+Can the M4 FreeRTOS system and the M5 DFX loader merge — the RTOS itself
+swapping sensor personalities while its sensor/heartbeat tasks keep
+running — completing the tricorder's core operating loop?
+
+## 2. How
+
+- **Equipment:** Nexys A7-100T; same full-config-A bitstream and partials
+  as entries 17-19 (no hardware rebuild — the ICAPE2 writer, decoupler,
+  and RM registers were already in the static region).
+- **Software:** `dfx_task` added to `sw/tricorder-rtos` (priority above
+  sensors): every 8 s rotates PDM → SONAR → B → A from the DDR2-staged
+  partials via the raw ICAPE2 writer, verifies the signature, and reads
+  the personality's own data (PDM PCM/energy; sonar burst + peak).
+  `hw/scripts/run_rtos_dfx.xsdb` stages and boots the whole demo.
+  Also added: `hw/Makefile` CI targets (validate / ooc-rm / static /
+  dfx / rtos, all nonzero-exit) + `hw/scripts/ooc_rm.tcl` per-RM
+  utilization budget gate (70% of the X1Y2 pblock).
+
+### Key commands
+
+```bash
+~/Vivado/2025.2/Vivado/bin/xsdb hw/scripts/run_rtos_dfx.xsdb
+cat /dev/ttyUSB1
+make -C hw validate ooc-rm     # CI gates
+```
+
+## 3. Observations
+
+- Rotation transcript (excerpt): `DFX: RM-PDM live ... sig=9D3A0001 OK`
+  → `PDM: pcm=FFFFFFF2 energy=83` → `DFX: RM-SONAR ... 50A40001 OK` →
+  `SONAR: peak|t=07FF0000` → `RM-B ... OK` → `RM-A ...` — **all four
+  personalities swapped by the RTOS, signatures verified, while
+  ADT7420 readings (32.0-32.2 °C) and heartbeat ticks continued
+  uninterrupted through every swap.**
+- Swap time under FreeRTOS: **16.2 s** vs 390 ms bare-metal — the GPIO
+  pacing loop takes tick interrupts and scheduler overhead per word.
+  Functional, not yet fast; fixes: taskENTER_CRITICAL around the stream,
+  or the planned AXIS-FIFO writer front-end.
+- Cached full-range memtest: **PASS 0 errors** again; no wall-clock
+  speedup vs the uncached M3 run — expected, a 128 MiB linear walk is
+  100% miss on a 16 KB cache. The caches' real work is instruction fetch
+  (FreeRTOS executes from DDR at all).
+
+## 4. Data analysis
+
+This closes the loop the project was defined around: a self-contained
+instrument whose OS loads and unloads sensor hardware at runtime. The
+demo is one xsdb invocation away at any time, and the CI make targets
+freeze the gates (pin plans, RM budgets, full builds) for every future
+change. The 40x swap-time regression under the RTOS is pure software
+pacing — the fabric path is identical — so it is an optimization queue
+item, not a design risk.
+
+## 5. Ideas for future experiments
+
+- taskENTER_CRITICAL (or DMA/FIFO writer) around the ICAP stream; target
+  sub-second RTOS swaps.
+- Personality selection from switches/buttons via the ui task instead of
+  fixed rotation; 7-seg shows active RM.
+- QSPI slot table so the demo boots without a host (golden image +
+  partials in flash).
+- Wire the harness: full sensor scan, mic array, echo ranging — the only
+  gates this bench session could not reach.
 
 ---
 
