@@ -5,3 +5,5 @@ build/
 *.log
 *.str
 vivado_pid*.debug
+build/
+clockInfo.txt

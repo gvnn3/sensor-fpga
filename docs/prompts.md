@@ -6,6 +6,18 @@ chronological order (newest first). Each entry has the date and time
 
 ---
 
+## 24 Jul 2026 22:36:30
+
+> Do you need me to run the udev installer yet?
+
+---
+
+## 24 Jul 2026 22:33:00
+
+> Do M0, I'll run the udev installer when you need it
+
+---
+
 ## 24 Jul 2026 22:10:00
 
 > Read the docs directory, using ultracode plan the project and describe the

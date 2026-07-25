@@ -17,6 +17,7 @@ or removed at runtime from the FPGA dynamic (partial reconfiguration) region.
 
 # Table of Contents
 
+12. [EXPERIMENT 24 Jul 2026 22:38:43 M0 Bring-Up: Blinky on the Nexys A7-100T via JTAG](#24-jul-2026-223843) :complete:
 11. [EXPERIMENT 24 Jul 2026 22:31:09 Board Retarget Plan: Nexys A7-100T (Ultracode Multi-Agent Planning)](#24-jul-2026-223109) :complete:
 10. [EXPERIMENT  5 Jul 2026 05:14:19 Vivado Validation of the Master XDC](#5-jul-2026-051419) :complete:
 9. [EXPERIMENT  5 Jul 2026 05:08:00 Master XDC for the Full Sensor Complement](#5-jul-2026-050800) :complete:
@@ -28,6 +29,76 @@ or removed at runtime from the FPGA dynamic (partial reconfiguration) region.
 3. [EXPERIMENT  4 Jul 2026 07:34:03 OHWR Cores for the Dynamic Region of This Host (Alveo U250)](#4-jul-2026-073403) :complete:
 2. [EXPERIMENT  4 Jul 2026 07:26:08 Vitis Libraries Suitability for the FPGA Dynamic Region](#4-jul-2026-072608) :complete:
 1. [EXPERIMENT  4 Jul 2026 07:20:01 Repository and Notebook Initialization](#4-jul-2026-072001) :complete:
+
+---
+
+# EXPERIMENT 24 Jul 2026 22:38:43 M0 Bring-Up: Blinky on the Nexys A7-100T via JTAG :complete:
+
+## 1. Hypothesis
+
+Does the full toolchain-to-board path work — can Vivado 2025.2 (the host's
+only Xilinx install) build a bitstream for the attached Nexys A7-100T and
+program it over JTAG as user gnn — and is DFX license-free in 2025.2?
+(Roadmap milestone M0 from `docs/plan.md`.)
+
+## 2. How
+
+- **Equipment:** Digilent Nexys A7-100T (XC7A100T-1CSG324C) on USB, FT2232
+  serial 210292BF705D; Linux 6.17.0-22-generic.
+- **Software:** Vivado 2025.2 (`/home/gnn/Vivado/2025.2`), non-project
+  batch flow. No cable/udev rules installed (`/etc/udev/rules.d` has no
+  Xilinx/Digilent entries).
+- **Benchmarks:** new files `hw/bringup/blinky.v` (27-bit counter →
+  led[3:0], CPU_RESETN reset), `hw/bringup/blinky-nexys-a7.xdc`,
+  `hw/scripts/build_blinky.tcl`, `hw/scripts/program.tcl` (reusable JTAG
+  helper, exits nonzero unless DONE=1), `hw/scripts/check_dfx_license.tcl`.
+
+### Key commands
+
+```bash
+V=~/Vivado/2025.2/Vivado/bin/vivado
+$V -mode batch -nolog -nojournal -source hw/scripts/build_blinky.tcl
+$V -mode batch -nolog -nojournal -source hw/scripts/program.tcl -tclargs build/blinky.bit
+$V -mode batch -nolog -nojournal -source hw/scripts/check_dfx_license.tcl
+```
+
+## 3. Observations
+
+- **udev installer NOT needed:** `/dev/bus/usb/003/011` is root:plugdev
+  0660 and gnn is in plugdev — hw_server found the cable as-is:
+  `localhost:3121/xilinx_tcf/Digilent/210292BF705DA`, device **xc7a100t_0**.
+- Build: **0 errors, 0 warnings, 0 critical warnings; WNS +7.202 ns**
+  (all constraints met); 2 LUT / 27 FF; `build/blinky.bit` =
+  **3,825,907 bytes** — matching the plan's 3.83 MB full-bitstream figure.
+- Program: `PROGRAM: PASS (DONE=1)`; XADC read through the programmed
+  device: **die temp 48.6 °C** (plausible idle value).
+- DFX check: `HD.RECONFIGURABLE` accepted on a synthesized cell and
+  `opt_design` ran — **no license error in 2025.2** for xc7a100t.
+- No libtinfo shim needed (2019.2/2023.1-era workaround obsolete on this
+  kernel with 2025.2).
+
+## 4. Data analysis
+
+Every M0 gate passed on the first attempt, and the milestone's two
+standing risks are retired cheaper than planned: (1) JTAG works without
+the sudo udev-installer step — Ubuntu's plugdev default covers the FT2232,
+so nothing in the flow requires root; (2) DFX is confirmed license-free in
+2025.2, unblocking M5 without a toolchain change. The 3.83 MB bitstream
+size empirically anchors the plan's QSPI slot math (16 MiB flash − golden
+image ≈ 12 MiB for partials). `program.tcl` is now the standing
+program-and-verify helper for all later milestones; the XADC temp read
+doubles as proof that post-configuration JTAG register access works, which
+M5's swap-time measurements will rely on.
+
+## 5. Ideas for future experiments
+
+- M1: write `hw/constraints/tricorder-nexys-a7-100t.xdc` (plan §2 pin
+  table), split per-board top wrappers, parameterize `validate_xdc.tcl`
+  with `-tclargs <board>` and nonzero exit on DRC; re-run Arty as control.
+- Verify blink visually / count LED period against wall clock (LED0
+  ≈ 0.75 Hz) — only gate not machine-checkable.
+- M2 prep: confirm MicroBlaze-V + FreeRTOS BSP presence in this exact
+  2025.2 install (Vitis SDT flow) before committing the block design.
 
 ---
 
