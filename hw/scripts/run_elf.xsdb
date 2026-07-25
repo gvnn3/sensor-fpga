@@ -1,0 +1,16 @@
+# Program a bitstream and run an ELF on the MicroBlaze (xsdb script).
+# Usage: xsdb hw/scripts/run_elf.xsdb <bitfile> <elffile>
+
+set bitfile [lindex $argv 0]
+set elffile [lindex $argv 1]
+
+connect
+targets -set -filter {name =~ "xc7a100t*"}
+fpga $bitfile
+after 500
+targets -set -filter {name =~ "*MicroBlaze*#0*"}
+catch {stop}
+dow $elffile
+con
+puts "RUN_ELF: PASS ($elffile running)"
+disconnect

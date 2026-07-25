@@ -7,3 +7,4 @@ build/
 vivado_pid*.debug
 build/
 clockInfo.txt
+*.elf

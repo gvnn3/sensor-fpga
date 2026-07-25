@@ -17,6 +17,7 @@ or removed at runtime from the FPGA dynamic (partial reconfiguration) region.
 
 # Table of Contents
 
+14. [EXPERIMENT 24 Jul 2026 22:57:00 M2: MicroBlaze Static Region — Hello over UART (CPU Decision Ratified)](#24-jul-2026-225700) :complete:
 13. [EXPERIMENT 24 Jul 2026 22:52:30 M1: Nexys A7 Master XDC + Two-Board Validation Gate](#24-jul-2026-225230) :complete:
 12. [EXPERIMENT 24 Jul 2026 22:38:43 M0 Bring-Up: Blinky on the Nexys A7-100T via JTAG](#24-jul-2026-223843) :complete:
 11. [EXPERIMENT 24 Jul 2026 22:31:09 Board Retarget Plan: Nexys A7-100T (Ultracode Multi-Agent Planning)](#24-jul-2026-223109) :complete:
@@ -30,6 +31,78 @@ or removed at runtime from the FPGA dynamic (partial reconfiguration) region.
 3. [EXPERIMENT  4 Jul 2026 07:34:03 OHWR Cores for the Dynamic Region of This Host (Alveo U250)](#4-jul-2026-073403) :complete:
 2. [EXPERIMENT  4 Jul 2026 07:26:08 Vitis Libraries Suitability for the FPGA Dynamic Region](#4-jul-2026-072608) :complete:
 1. [EXPERIMENT  4 Jul 2026 07:20:01 Repository and Notebook Initialization](#4-jul-2026-072001) :complete:
+
+---
+
+# EXPERIMENT 24 Jul 2026 22:57:00 M2: MicroBlaze Static Region — Hello over UART (CPU Decision Ratified) :complete:
+
+## 1. Hypothesis
+
+Can a Tcl-scripted block design with a soft CPU, built board-file-free for
+xc7a100tcsg324-1 in Vivado 2025.2, print over the Nexys A7's USB-UART —
+and which MicroBlaze (classic vs -V) does the FreeRTOS requirement
+actually permit?
+
+## 2. How
+
+- **Equipment:** Nexys A7-100T on JTAG (FT2232), /dev/ttyUSB1 = UART.
+- **Software:** Vivado 2025.2 (BD project mode, throwaway project under
+  build/), xsdb for program+load, mb-gcc from the bundled toolchain
+  (`~/Vivado/2025.2/gnu/microblaze/lin/bin`). No Vitis platform/BSP used.
+- **Benchmarks:** `hw/bd/static_region.tcl` (BD: clk_wiz 100 MHz, classic
+  MicroBlaze via block automation — 32 KB LMB, MDM debug-only, no caches —
+  AXI UARTlite 115200, AXI GPIO x4 LED; deterministic addresses UART
+  0x40600000, GPIO 0x40000000), `hw/constraints/m2-static-nexys-a7.xdc`,
+  `hw/scripts/build_static.tcl`, `hw/scripts/run_elf.xsdb`, `sw/hello/`
+  (250-byte bare-metal ELF: own vectors/crt, polled UARTlite, LED counter).
+
+### Key commands
+
+```bash
+V=~/Vivado/2025.2/Vivado/bin
+$V/vivado -mode batch -nolog -nojournal -source hw/scripts/build_static.tcl
+GNU=~/Vivado/2025.2/gnu/microblaze/lin/bin
+$GNU/mb-gcc -O2 -Wall -mlittle-endian -nostdlib -nostartfiles -ffreestanding \
+    -Wl,-T,link.ld -o hello.elf start.S hello.c   # in sw/hello
+$V/xsdb hw/scripts/run_elf.xsdb build/static_region.bit sw/hello/hello.elf
+stty -F /dev/ttyUSB1 115200 raw -echo && timeout 3 cat /dev/ttyUSB1
+```
+
+## 3. Observations
+
+- **CPU decision evidence:** 2025.2 ships MicroBlaze-V IP
+  (`microblaze_riscv_v1_0`) but every bundled FreeRTOS BSP
+  (freertos10_xilinx v1_15–v1_18) has ports for **ARM_CA53/CA9/CR5 and
+  MicroBlazeV9 only — no RISC-V/MicroBlaze-V port**.
+- Build: **PASS, WNS +2.699 ns**, bitstream + XSA produced. One BD
+  scripting fix: the MicroBlaze block automation already ties the
+  `cpu_resetn` net to `ext_reset_in`; an explicit `connect_bd_net` errors
+  with "all ports/pins are already connected".
+- Run: `RUN_ELF: PASS`; **"hello tricorder" repeating on /dev/ttyUSB1 at
+  115200**; LEDs count.
+- Toolchain quirk: user shell's `make` shim broken under the harness
+  (`function definition file not found`) — compiled with a direct mb-gcc
+  invocation; Makefile kept for normal use.
+
+## 4. Data analysis
+
+**CPU ratified: classic MicroBlaze.** The entry-7 decision was
+"MicroBlaze(-V) + FreeRTOS"; with FreeRTOS fixed and no RISC-V port in the
+2025.2 embeddedsw tree, classic is the only in-support path (revisit only
+if AMD ships a MB-V FreeRTOS port or we write one). The
+BSP-free hello deliberately sidesteps the Vitis unified flow for M2 —
+one fewer variable while proving BD → bitstream → xsdb → UART; Vitis/BSP
+enters at M4 where FreeRTOS actually needs it. Everything is rebuildable
+from a clean clone: BD is Tcl (no .bd binary committed), addresses are
+pinned so `sw/hello` needs no generated headers.
+
+## 5. Ideas for future experiments
+
+- M3: add MIG 7-series DDR2 (Digilent mig.prj fetched from vivado-boards
+  D.0/1.3: MT47H64M16HR-25E, 3077 ps, 4:1) + software memtest.
+- M4: Vitis SDT platform from the XSA; FreeRTOS BSP; AXI IIC + intc into
+  the BD.
+- Add `sw/hello` compile + BD elaboration to the CI make targets.
 
 ---
 
