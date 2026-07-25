@@ -6,6 +6,12 @@ chronological order (newest first). Each entry has the date and time
 
 ---
 
+## 25 Jul 2026 15:21:12
+
+> I will push, update the notebook with the demo entry first
+
+---
+
 ## 25 Jul 2026 10:05:00
 
 > Describe and document how to run the demo.  Commit that as a separate

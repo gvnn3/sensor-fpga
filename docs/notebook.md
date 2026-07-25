@@ -17,6 +17,7 @@ or removed at runtime from the FPGA dynamic (partial reconfiguration) region.
 
 # Table of Contents
 
+21. [EXPERIMENT 25 Jul 2026 15:21:12 Demo Runbook Published (docs/demo.md)](#25-jul-2026-152112) :complete:
 20. [EXPERIMENT 25 Jul 2026 09:55:00 Integrated Demo: FreeRTOS Rotates All Four DFX Personalities + CI Targets](#25-jul-2026-095500) :complete:
 19. [EXPERIMENT 25 Jul 2026 09:30:00 M7: Sonar RM + Full Runtime Swap Demo (Ranging Pending Harness)](#25-jul-2026-093000) :complete:
 18. [EXPERIMENT 25 Jul 2026 09:28:00 M6: PDM Pipeline RM — Live Audio from the On-Board Mic via DFX Swap](#25-jul-2026-092800) :complete:
@@ -37,6 +38,60 @@ or removed at runtime from the FPGA dynamic (partial reconfiguration) region.
 3. [EXPERIMENT  4 Jul 2026 07:34:03 OHWR Cores for the Dynamic Region of This Host (Alveo U250)](#4-jul-2026-073403) :complete:
 2. [EXPERIMENT  4 Jul 2026 07:26:08 Vitis Libraries Suitability for the FPGA Dynamic Region](#4-jul-2026-072608) :complete:
 1. [EXPERIMENT  4 Jul 2026 07:20:01 Repository and Notebook Initialization](#4-jul-2026-072001) :complete:
+
+---
+
+# EXPERIMENT 25 Jul 2026 15:21:12 Demo Runbook Published (docs/demo.md) :complete:
+
+## 1. Hypothesis
+
+Administrative entry — no new experiment. Records the publication of the
+demo runbook so anyone (including future us) can reproduce the entry-20
+integrated demo without reading the notebook history.
+
+## 2. How
+
+- **Equipment:** none (documentation).
+- **Software:** `docs/demo.md`, commit 141b287 on `gnn-a7-tricorder`.
+- **Benchmarks:** procedure cross-checked against the commands actually
+  used in entries 17-20.
+
+### Key commands
+
+```bash
+# The runbook's two-terminal core:
+stty -F /dev/ttyUSB1 115200 raw -echo && cat /dev/ttyUSB1
+~/Vivado/2025.2/Vivado/bin/xsdb hw/scripts/run_rtos_dfx.xsdb
+```
+
+## 3. Observations
+
+`docs/demo.md` contains: the four-personality rotation table with
+signatures and how to provoke each (mic tap for PDM energy; `07FF0000`
+as the documented no-harness sonar value); prerequisites — **no sudo**
+(plugdev covers the FT2232), clean-clone rebuild via
+`make -C hw static dfx rtos` (~45 min); run procedure; expected
+transcript; two variants (bare-metal 390 ms gate run
+`run_dfx_test.xsdb 1` — byteswap flag mandatory with `-bin_file`
+partials — and the CPU-free JTAG partial check); one-paragraph
+architecture summary including the HWICAP-broken → raw-ICAPE2-writer
+story; troubleshooting table sourced from real failures hit this
+session (stale hw_server, dueling tty readers, unstaged partials).
+
+## 4. Data analysis
+
+Documentation is the cheapest reproducibility instrument this project
+has: every gate in entries 11-20 was command-driven, so the runbook is a
+faithful executable summary rather than a narrative. Kept deliberately
+separate from plan.md (intent) and the notebook (evidence): demo.md is
+operations.
+
+## 5. Ideas for future experiments
+
+- Update demo.md when the sensor harness lands (external scan expected
+  addresses become observable) and when the swap-time optimization
+  replaces the 16.2 s RTOS figure.
+- Add a `make -C hw demo` target wrapping the xsdb invocation.
 
 ---
 
