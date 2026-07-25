@@ -8,7 +8,7 @@ keep running.
 
 Verified on: Digilent Nexys A7-100T, Vivado/Vitis 2025.2
 (`~/Vivado/2025.2`), Ubuntu, branch `gnn-a7-tricorder`
-(notebook entries 11–20 record the underlying experiments).
+(notebook entries 11–23 record the underlying experiments).
 
 ## What you will see
 
@@ -74,7 +74,7 @@ RTOS: FreeRTOS on MicroBlaze — tricorder M4
 ADT7420: 32.00 C
 RTOS: tick 0
 DFX: swapping to RM-PDM
-DFX: RM-PDM live in 1651043 us, sig=9D3A0001 OK
+DFX: RM-PDM live in 2688 us, sig=9D3A0001 OK
   PDM: pcm=FFFFFFF2 energy=83
 ...
 DFX: RM-SONAR live ... sig=50A40001 OK
@@ -86,7 +86,7 @@ Any `MISMATCH` after a swap, or a stalled rotation, is a failure.
 ## Variants
 
 - **Bare-metal loader gate** (the M5–M7 measurement run — same swaps at
-  390 ms each instead of 1.65 s, plus the PDM/sonar probes and a final
+  2.7 ms each (DMA-fed ICAPE2, wire speed), plus the PDM/sonar probes and a final
   `DFX: PASS (all swaps ok)` verdict):
 
   ```bash
@@ -108,13 +108,15 @@ interrupt controller) owns all pins and never reconfigures. One pblock —
 clock region X1Y2, `RESET_AFTER_RECONFIG` — holds the current
 personality behind a DFX decoupler on an AXI4-Lite boundary at
 `0x44A10000` plus dedicated PDM/sonar/ADC boundary pins. To swap, the
-`dfx_task` decouples the partition, streams the staged partial word by
-word into a **raw ICAPE2 primitive** (one config word per GPIO
-go-toggle; bit-reversal per UG470 done in fabric), re-couples, and
-verifies the new personality's signature register. The stock AXI HWICAP
-core is present but non-functional in this configuration (write FSM
-wedges on its first transfer — notebook entry 17); the ICAPE2 writer is
-the working path.
+`dfx_task` decouples the partition and points an **AXI DMA at the staged
+partial in DDR2**; the DMA streams it into a raw ICAPE2 primitive at one
+config word per 100 MHz cycle (full 32-bit bit-reversal done in wiring —
+UG470 byte bit-reverse composed with the byteswap), then the task
+re-couples and verifies the new personality's signature register.
+2.7 ms per swap — the configuration port's wire speed. A GPIO-paced
+writer on the same ICAPE2 remains as fallback. The stock AXI HWICAP core
+is present but non-functional in this configuration (write FSM wedges on
+its first transfer — notebook entry 17).
 
 ## Troubleshooting
 

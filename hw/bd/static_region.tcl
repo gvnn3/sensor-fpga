@@ -195,6 +195,31 @@ connect_bd_net [get_bd_ports icapw_data] [get_bd_pins axi_gpio_2/gpio_io_o]
 create_bd_port -dir O -from 0 -to 0 icapw_go
 connect_bd_net [get_bd_ports icapw_go] [get_bd_pins axi_gpio_2/gpio2_io_o]
 
+# AXIS-FIFO fast load path: axi_dma MM2S reads a staged partial from DDR2
+# and streams it out of the BD; the top wrapper feeds the stream into the
+# ICAPE2 sink (one config word per cycle). GPIO writer remains as fallback.
+set dma [create_bd_cell -type ip -vlnv [ipv axi_dma] axi_dma_0]
+set_property -dict [list \
+    CONFIG.c_include_sg {0} \
+    CONFIG.c_include_mm2s {1} \
+    CONFIG.c_include_s2mm {0} \
+    CONFIG.c_sg_length_width {26} \
+    CONFIG.c_m_axi_mm2s_data_width {32} \
+    CONFIG.c_m_axis_mm2s_tdata_width {32} \
+    CONFIG.c_mm2s_burst_size {64} \
+] $dma
+apply_bd_automation -rule xilinx.com:bd_rule:axi4 -config { \
+    Clk_master {Auto} Clk_slave {Auto} Clk_xbar {Auto} \
+    Master {/microblaze_0 (Periph)} Slave {/axi_dma_0/S_AXI_LITE} \
+    ddr_seg {Auto} intc_ip {New AXI Interconnect} master_apm {0} \
+} [get_bd_intf_pins axi_dma_0/S_AXI_LITE]
+apply_bd_automation -rule xilinx.com:bd_rule:axi4 -config { \
+    Clk_master {Auto} Clk_slave {Auto} Clk_xbar {Auto} \
+    Master {/axi_dma_0/M_AXI_MM2S} Slave {/mig_7series_0/S_AXI} \
+    ddr_seg {Auto} intc_ip {New AXI Interconnect} master_apm {0} \
+} [get_bd_intf_pins axi_dma_0/M_AXI_MM2S]
+externalize axi_dma_0/M_AXIS_MM2S icap_axis
+
 # RM clock + reset out to the top-level wrapper
 create_bd_port -dir O -type clk rm_clk
 connect_bd_net [get_bd_ports rm_clk] [get_bd_pins clk_wiz_0/clk_out1]
@@ -209,6 +234,7 @@ set_property offset 0x40600000 [get_bd_addr_segs {microblaze_0/Data/SEG_axi_uart
 set_property offset 0x40000000 [get_bd_addr_segs {microblaze_0/Data/SEG_axi_gpio_0_Reg}]
 set_property offset 0x40010000 [get_bd_addr_segs {microblaze_0/Data/SEG_axi_gpio_1_Reg}]
 set_property offset 0x40020000 [get_bd_addr_segs {microblaze_0/Data/SEG_axi_gpio_2_Reg}]
+set_property offset 0x41E00000 [get_bd_addr_segs {microblaze_0/Data/SEG_axi_dma_0_Reg}]
 set_property offset 0x41C00000 [get_bd_addr_segs {microblaze_0/Data/SEG_axi_timer_0_Reg}]
 set rm_seg [get_bd_addr_segs -of_objects [get_bd_addr_spaces microblaze_0/Data] \
     -filter {NAME =~ "*rm*"}]

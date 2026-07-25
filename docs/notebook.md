@@ -17,6 +17,7 @@ or removed at runtime from the FPGA dynamic (partial reconfiguration) region.
 
 # Table of Contents
 
+23. [EXPERIMENT 25 Jul 2026 18:05:04 DMA-Fed ICAPE2: Swaps at Wire Speed — 2.7 ms](#25-jul-2026-180504) :complete:
 22. [EXPERIMENT 25 Jul 2026 16:57:03 RTOS Swap-Time Optimization: 15.9 s → 1.65 s](#25-jul-2026-165703) :complete:
 21. [EXPERIMENT 25 Jul 2026 15:21:12 Demo Runbook Published (docs/demo.md)](#25-jul-2026-152112) :complete:
 20. [EXPERIMENT 25 Jul 2026 09:55:00 Integrated Demo: FreeRTOS Rotates All Four DFX Personalities + CI Targets](#25-jul-2026-095500) :complete:
@@ -39,6 +40,74 @@ or removed at runtime from the FPGA dynamic (partial reconfiguration) region.
 3. [EXPERIMENT  4 Jul 2026 07:34:03 OHWR Cores for the Dynamic Region of This Host (Alveo U250)](#4-jul-2026-073403) :complete:
 2. [EXPERIMENT  4 Jul 2026 07:26:08 Vitis Libraries Suitability for the FPGA Dynamic Region](#4-jul-2026-072608) :complete:
 1. [EXPERIMENT  4 Jul 2026 07:20:01 Repository and Notebook Initialization](#4-jul-2026-072001) :complete:
+
+---
+
+# EXPERIMENT 25 Jul 2026 18:05:04 DMA-Fed ICAPE2: Swaps at Wire Speed — 2.7 ms :complete:
+
+## 1. Hypothesis
+
+Entry 22 left swaps CPU-pacing-bound (1.65 s RTOS / 390 ms bare-metal)
+and predicted an AXIS-fed ICAPE2 writer would reach the ICAP's wire
+speed. Target: under 20 ms per swap.
+
+## 2. How
+
+- **Equipment:** Nexys A7-100T.
+- **Software/hardware:** BD gains **axi_dma_0** (simple MM2S only,
+  26-bit length, 32-bit stream, S_AXI_LITE at 0x41E00000; M_AXI_MM2S
+  into the MIG through connection automation). The MM2S stream leaves
+  the BD (`icap_axis`) and terminates in the top wrapper's ICAPE2 sink:
+  tready tied high, one config word per beat, CSIB low exactly while a
+  registered beat is valid. Bit-ordering identity: software byteswap ∘
+  UG470 per-byte bit-reverse = **full 32-bit reversal**, done in wiring
+  — the DMA streams raw .bin bytes from DDR2 with zero software
+  preprocessing. GPIO writer kept in hardware as fallback; both loaders
+  (bare-metal + RTOS dfx_task) switched to: DMACR=1, SA=addr,
+  LENGTH=bytes, poll Idle. RTOS path dropped its critical section —
+  nothing to protect, the CPU is idle during the stream.
+- **Benchmarks:** full bare-metal gate sequence + RTOS rotation demo.
+
+### Key commands
+
+```bash
+make -C hw static && make -C hw dfx && make -C hw rtos
+~/Vivado/2025.2/Vivado/bin/xsdb hw/scripts/run_dfx_test.xsdb 1
+~/Vivado/2025.2/Vivado/bin/xsdb hw/scripts/run_rtos_dfx.xsdb
+```
+
+## 3. Observations
+
+- Static rebuild WNS +0.901 ns; DFX flow pr_verify PASS.
+- **Bare-metal: 2,679 µs per swap** — identical across all six swaps.
+  Sanity: 1,071,052 B / 4 = 267,763 words at 100 MHz one-word-per-cycle
+  = 2,678 µs theoretical. **The DMA path saturates the ICAP: wire
+  speed, to the microsecond.**
+- **FreeRTOS: 2,688 µs** (+9 µs DMA register setup/poll overhead), no
+  critical section, ticks and ADT7420 reads continue through the swap.
+- All signatures verified; PDM live audio (energy peak 3,743,367) and
+  sonar bursts unchanged; `DFX: PASS (all swaps ok)`.
+
+## 4. Data analysis
+
+Swap-time history closes: **16.2 s → 1.65 s (compiler) → 2.7 ms (DMA)**
+— 6,000x total, and the endpoint is the configuration port's physical
+limit at 100 MHz x32, so there is nothing left to win in this direction
+(a faster icap_clk is out of spec; compression would shrink the partial
+itself). Reconfiguration is now invisible at demo timescales — under
+three MicroBlaze ticks — which retires the "swap latency" concern from
+the original plan outright. The bit-reversal-in-wiring trick also
+removed the last software byte-order dependency: the staged partial is
+byte-exact `write_bitstream -bin_file` output.
+
+## 5. Ideas for future experiments
+
+- Bitstream compression (`BITSTREAM.GENERAL.COMPRESS`) on partials:
+  smaller staging + proportionally faster swaps.
+- QSPI slot table: at 2.7 ms ICAP cost, QSPI read (~52 ms at x4 50 MHz)
+  now dominates a flash-sourced swap — measure end-to-end.
+- Interrupt-driven DMA completion (mm2s_introut → intc) instead of
+  polling, freeing the dfx_task during the 2.7 ms.
 
 ---
 

@@ -31,6 +31,11 @@
 /* axi_timer counter 1 (counter 0 drives the FreeRTOS tick) */
 #define TMR_CSR1   (*(volatile u32 *)0x41C00010u)
 #define TMR_TCR1   (*(volatile u32 *)0x41C00018u)
+/* axi_dma MM2S -> AXIS ICAPE2 sink */
+#define DMA_MM2S_CR  (*(volatile u32 *)0x41E00000u)
+#define DMA_MM2S_SR  (*(volatile u32 *)0x41E00004u)
+#define DMA_MM2S_SA  (*(volatile u32 *)0x41E00018u)
+#define DMA_MM2S_LEN (*(volatile u32 *)0x41E00028u)
 
 /* Partial-bitstream staging protocol (filled by xsdb before boot) */
 struct rm_desc {
@@ -119,7 +124,6 @@ static void sensors_task(void *arg)
 __attribute__((optimize("O2"))) static void dfx_task(void *arg)
 {
     unsigned idx = 0;
-    u32 go;
 
     (void)arg;
     for (;;) {
@@ -140,17 +144,24 @@ __attribute__((optimize("O2"))) static void dfx_task(void *arg)
         TMR_CSR1 = 0x20;   /* load 0 */
         TMR_CSR1 = 0x80;   /* run up */
         u32 t0 = TMR_TCR1;
-        taskENTER_CRITICAL();
         DECOUPLE = 1;
-        go = ICAPW_GO & 1u;
-        const u32 *w = (const u32 *)rm->addr;
-        for (u32 i = 0; i < len / 4; i++) {
-            ICAPW_DATA = bswap32(w[i]);
-            go ^= 1u;
-            ICAPW_GO = go;
+        /* DMA streams the partial into the AXIS->ICAPE2 sink; the fabric
+         * does byteswap+bitrev, so no CPU word pacing (and no critical
+         * section) is needed. GPIO writer path remains in hardware as a
+         * fallback (sw/dfx_load keeps that code path). */
+        DMA_MM2S_CR = 1;
+        DMA_MM2S_SA = rm->addr;
+        DMA_MM2S_LEN = len;
+        {
+            u32 spin = 0;
+            while (!(DMA_MM2S_SR & 0x2u)) {
+                if (DMA_MM2S_SR & 0x70u || ++spin > 100000000u) {
+                    xil_printf("DMA: error SR=%08x\r\n", DMA_MM2S_SR);
+                    break;
+                }
+            }
         }
         DECOUPLE = 0;
-        taskEXIT_CRITICAL();
         u32 t1 = TMR_TCR1;
 
         u32 sig = RM_SIG;

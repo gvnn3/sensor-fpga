@@ -43,6 +43,10 @@ module tricorder_m5_top (
     wire        rm_clk;
     wire [31:0] icapw_data;
     wire [0:0]  icapw_go;
+    wire [31:0] icap_axis_tdata;
+    wire        icap_axis_tvalid;
+    wire [3:0]  icap_axis_tkeep;
+    wire        icap_axis_tlast;
     wire [0:0]  rm_aresetn;
     wire [31:0] rm_awaddr, rm_wdata, rm_araddr, rm_rdata;
     wire [3:0]  rm_wstrb;
@@ -77,6 +81,11 @@ module tricorder_m5_top (
         .ddr2_we_n    (ddr2_we_n),
         .icapw_data   (icapw_data),
         .icapw_go     (icapw_go),
+        .icap_axis_tdata  (icap_axis_tdata),
+        .icap_axis_tvalid (icap_axis_tvalid),
+        .icap_axis_tready (1'b1),
+        .icap_axis_tkeep  (icap_axis_tkeep),
+        .icap_axis_tlast  (icap_axis_tlast),
         .rm_clk       (rm_clk),
         .rm_aresetn   (rm_aresetn),
         .rm_axi_awaddr (rm_awaddr),
@@ -127,11 +136,26 @@ module tricorder_m5_top (
     wire [31:0] icapw_i = { bitrev8(icapw_lat[31:24]), bitrev8(icapw_lat[23:16]),
                             bitrev8(icapw_lat[15:8]),  bitrev8(icapw_lat[7:0]) };
 
+    // AXIS fast path: one config word per beat. Full 32-bit reversal =
+    // byteswap (file LE -> config BE) composed with UG470 per-byte bitrev,
+    // so the DMA streams raw .bin words with no software preprocessing.
+    reg  [31:0] axis_lat;
+    reg         axis_csn = 1'b1;
+    integer     m;
+    always @(posedge rm_clk) begin
+        axis_csn <= ~icap_axis_tvalid;
+        for (m = 0; m < 32; m = m + 1)
+            axis_lat[m] <= icap_axis_tdata[31 - m];
+    end
+
+    wire        icap_csn_mux = axis_csn & icapw_csn;
+    wire [31:0] icap_i_mux   = icapw_csn ? axis_lat : icapw_i;
+
     ICAPE2 #(.ICAP_WIDTH("X32")) u_icap_writer (
         .CLK   (rm_clk),
-        .CSIB  (icapw_csn),
+        .CSIB  (icap_csn_mux),
         .RDWRB (1'b0),
-        .I     (icapw_i),
+        .I     (icap_i_mux),
         .O     ()
     );
 

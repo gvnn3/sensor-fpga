@@ -6,6 +6,13 @@ chronological order (newest first). Each entry has the date and time
 
 ---
 
+## 25 Jul 2026 17:00:00
+
+> Try the AXIS-FIFO writer to get swaps under 20 ms
+> *(and "keep going until the swap time is measured")*
+
+---
+
 ## 25 Jul 2026 16:30:00
 
 > Try the swap time optimization with taskENTER_CRITICAL

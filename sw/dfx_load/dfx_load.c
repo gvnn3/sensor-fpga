@@ -22,6 +22,7 @@
 #define GPIO_BASE   0x40000000u /* ch1 LEDs, ch2 init_calib */
 #define GPIO1_BASE  0x40010000u /* ch1 bit0 = decouple */
 #define GPIO2_BASE  0x40020000u /* ch1 = ICAPE2 writer data, ch2 = go toggle */
+#define DMA_BASE    0x41E00000u /* axi_dma MM2S -> ICAPE2 AXIS sink */
 #define HWICAP_BASE 0x44A00000u
 #define TIMER_BASE  0x41C00000u
 #define RM_BASE     0x44A10000u
@@ -44,6 +45,10 @@
 #define DECOUPLE     (*(volatile unsigned int *)(GPIO1_BASE + 0x0))
 #define ICAPW_DATA   (*(volatile unsigned int *)(GPIO2_BASE + 0x0))
 #define ICAPW_GO     (*(volatile unsigned int *)(GPIO2_BASE + 0x8))
+#define DMA_MM2S_CR  (*(volatile unsigned int *)(DMA_BASE + 0x00))
+#define DMA_MM2S_SR  (*(volatile unsigned int *)(DMA_BASE + 0x04))
+#define DMA_MM2S_SA  (*(volatile unsigned int *)(DMA_BASE + 0x18))
+#define DMA_MM2S_LEN (*(volatile unsigned int *)(DMA_BASE + 0x28))
 
 #define RM_COUNT     (*(volatile unsigned int *)(RM_BASE + 0x0))
 #define RM_SIG       (*(volatile unsigned int *)(RM_BASE + 0x4))
@@ -144,6 +149,35 @@ static unsigned int icap_load(const unsigned int *words, unsigned int nwords,
     return t1 - t0;
 }
 
+/* Primary fast path: axi_dma streams the partial from DDR2 into the
+ * AXIS->ICAPE2 sink (one word/cycle; hardware does the bit reversal, so
+ * the raw .bin bytes in DDR need no software preprocessing). Returns
+ * timer ticks, 0 on DMA error/timeout. */
+static unsigned int dma_icap_load(unsigned int addr, unsigned int bytes)
+{
+    unsigned int t0, t1;
+
+    TMR_CSR0 = 0x0;
+    TMR_CSR0 = 0x20;
+    TMR_CSR0 = 0x80;
+    t0 = TMR_TCR0;
+
+    DMA_MM2S_CR = 1;                       /* run */
+    DMA_MM2S_SA = addr;
+    DMA_MM2S_LEN = bytes;                  /* triggers transfer */
+    for (unsigned int spin = 0; !(DMA_MM2S_SR & 0x2u); spin++) {  /* Idle */
+        if (DMA_MM2S_SR & 0x70u || spin > 50000000u) {
+            puts_uart("DMA: error/timeout SR=");
+            puthex(DMA_MM2S_SR);
+            puts_uart("\r\n");
+            return 0;
+        }
+    }
+
+    t1 = TMR_TCR0;
+    return t1 - t0;
+}
+
 /* Fallback: raw ICAPE2 writer in the top wrapper, one word per go-toggle */
 static unsigned int gpio_icap_load(const unsigned int *words,
                                    unsigned int nwords, int swap)
@@ -177,9 +211,9 @@ static int swap_to(const char *name, unsigned int addr, unsigned int bytes,
     puts_uart(" B)\r\n");
 
     DECOUPLE = 1;
-    ticks = icap_load((const unsigned int *)addr, bytes / 4, swap);
+    ticks = dma_icap_load(addr, bytes);
     if (ticks == 0) {
-        puts_uart("DFX: HWICAP wedged -> raw ICAPE2 writer fallback\r\n");
+        puts_uart("DFX: DMA path failed -> GPIO ICAPE2 writer fallback\r\n");
         ticks = gpio_icap_load((const unsigned int *)addr, bytes / 4, swap);
     }
     DECOUPLE = 0;
