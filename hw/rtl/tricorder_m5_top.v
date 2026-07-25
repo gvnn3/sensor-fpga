@@ -41,6 +41,8 @@ module tricorder_m5_top (
 );
 
     wire        rm_clk;
+    wire [31:0] icapw_data;
+    wire [0:0]  icapw_go;
     wire [0:0]  rm_aresetn;
     wire [31:0] rm_awaddr, rm_wdata, rm_araddr, rm_rdata;
     wire [3:0]  rm_wstrb;
@@ -73,6 +75,8 @@ module tricorder_m5_top (
         .ddr2_odt     (ddr2_odt),
         .ddr2_ras_n   (ddr2_ras_n),
         .ddr2_we_n    (ddr2_we_n),
+        .icapw_data   (icapw_data),
+        .icapw_go     (icapw_go),
         .rm_clk       (rm_clk),
         .rm_aresetn   (rm_aresetn),
         .rm_axi_awaddr (rm_awaddr),
@@ -95,6 +99,42 @@ module tricorder_m5_top (
     );
 
     assign pdm_m_lrsel = 1'b0; // ADMP421: data valid on clk low
+
+    // Raw ICAPE2 writer (second ICAP site; the HWICAP occupies the other).
+    // One config word per go-toggle: CSIB low for exactly one 100 MHz cycle.
+    // Bit ordering per UG470: bit-reverse within each byte for the ICAP I
+    // port; software supplies plain 0xAA995566-style words.
+    reg  [2:0]  icapw_sync = 3'b000;
+    reg  [31:0] icapw_lat  = 32'h0;
+    reg         icapw_csn  = 1'b1;
+
+    always @(posedge rm_clk) begin
+        icapw_sync <= {icapw_sync[1:0], icapw_go[0]};
+        if (icapw_sync[2] ^ icapw_sync[1]) begin
+            icapw_lat <= icapw_data;
+            icapw_csn <= 1'b0;
+        end else begin
+            icapw_csn <= 1'b1;
+        end
+    end
+
+    function [7:0] bitrev8(input [7:0] b);
+        integer k;
+        for (k = 0; k < 8; k = k + 1)
+            bitrev8[k] = b[7 - k];
+    endfunction
+
+    wire [31:0] icapw_i = { bitrev8(icapw_lat[31:24]), bitrev8(icapw_lat[23:16]),
+                            bitrev8(icapw_lat[15:8]),  bitrev8(icapw_lat[7:0]) };
+
+    ICAPE2 #(.ICAP_WIDTH("X32")) u_icap_writer (
+        .CLK   (rm_clk),
+        .CSIB  (icapw_csn),
+        .RDWRB (1'b0),
+        .I     (icapw_i),
+        .O     ()
+    );
+
 
     rm_slot u_rm (
         .clk           (rm_clk),

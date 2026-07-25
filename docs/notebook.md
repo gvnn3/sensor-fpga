@@ -17,6 +17,9 @@ or removed at runtime from the FPGA dynamic (partial reconfiguration) region.
 
 # Table of Contents
 
+19. [EXPERIMENT 25 Jul 2026 09:30:00 M7: Sonar RM + Full Runtime Swap Demo (Ranging Pending Harness)](#25-jul-2026-093000) :complete:
+18. [EXPERIMENT 25 Jul 2026 09:28:00 M6: PDM Pipeline RM — Live Audio from the On-Board Mic via DFX Swap](#25-jul-2026-092800) :complete:
+17. [EXPERIMENT 25 Jul 2026 09:26:00 M5: MicroBlaze-Driven DFX Swaps at 390 ms — HWICAP Broken, Raw ICAPE2 Writer Works](#25-jul-2026-092600) :complete:
 16. [EXPERIMENT 25 Jul 2026 08:30:00 M4: FreeRTOS Boots on MicroBlaze — I2C Stack Proven via On-Board ADT7420](#25-jul-2026-083000) :complete:
 15. [EXPERIMENT 24 Jul 2026 23:20:00 M3: DDR2 via MIG — 128 MiB Memtest Clean](#24-jul-2026-232000) :complete:
 14. [EXPERIMENT 24 Jul 2026 22:57:00 M2: MicroBlaze Static Region — Hello over UART (CPU Decision Ratified)](#24-jul-2026-225700) :complete:
@@ -33,6 +36,195 @@ or removed at runtime from the FPGA dynamic (partial reconfiguration) region.
 3. [EXPERIMENT  4 Jul 2026 07:34:03 OHWR Cores for the Dynamic Region of This Host (Alveo U250)](#4-jul-2026-073403) :complete:
 2. [EXPERIMENT  4 Jul 2026 07:26:08 Vitis Libraries Suitability for the FPGA Dynamic Region](#4-jul-2026-072608) :complete:
 1. [EXPERIMENT  4 Jul 2026 07:20:01 Repository and Notebook Initialization](#4-jul-2026-072001) :complete:
+
+---
+
+# EXPERIMENT 25 Jul 2026 09:30:00 M7: Sonar RM + Full Runtime Swap Demo (Ranging Pending Harness) :complete:
+
+## 1. Hypothesis
+
+Does the ultrasound sonar RM (40 kHz burst TX, 20 MS/s capture window,
+peak-hold) load and run via a runtime DFX swap, and does the full
+multi-personality demo (hello-A/B, PDM, sonar) survive repeated swapping?
+
+## 2. How
+
+- **Equipment:** Nexys A7-100T. No AD9226/AD8332/piezo harness attached —
+  ADC pins float; echo ranging physically impossible this session.
+- **Software:** `hw/dfx/rm/rm_sonar.v` (boundary v3: adds sonar_tx pair,
+  AFE PWM/hilo, 12-bit adcdac bus, 20 MHz adc clock), 4-config DFX flow,
+  loader phase 3.
+- **Benchmarks:** scripted sequence B→A→B→PDM(probe)→SONAR(3 bursts)→PDM.
+
+### Key commands
+
+```bash
+~/Vivado/2025.2/Vivado/bin/xsdb hw/scripts/run_dfx_test.xsdb 1
+cat /dev/ttyUSB1   # 115200
+```
+
+## 3. Observations
+
+- Sonar RM loaded by the in-fabric ICAPE2 writer in **390 ms**; signature
+  0x50A40001 correct.
+- **3 bursts fired and counted** (`bursts=...0003`); each capture window
+  completed; `peak|t = 07ff0000` — peak magnitude 0x7FF at t=0, i.e. the
+  floating ADC bus reads full-scale rail immediately. **Exactly the
+  expected signature for an unconnected AD9226** (and incidentally proves
+  the plan's OTR-replacement rail-detection idea works).
+- PDM→sonar→PDM round trip clean; final verdict `DFX: PASS (all swaps
+  ok)`; static UART/heartbeat never glitched across 6 swaps.
+
+## 4. Data analysis
+
+The swap demo — the session-achievable core of M7 — is complete: four
+distinct personalities rotate through one partition at runtime under
+MicroBlaze control, each self-identifying and functional immediately
+after reconfiguration (RESET_AFTER_RECONFIG delivering clean per-load
+state, e.g. the burst counter restarting). What remains of M7 is purely
+physical: piezo/AFE/ADC harness → real echo, and the M1 derating
+assumption (≤40 MS/s through 200 Ω) measured with an eye scan. The
+firmware and fabric sides need no further work for that — fire-and-read
+registers are already in place.
+
+## 5. Ideas for future experiments
+
+- Wire the ultrasound chain; expect peak_t to move off 0 to the echo
+  round-trip time (at 20 MS/s: 58.8 µs/cm of range → verify against tape
+  measure).
+- Sweep adc_clk 20→40+ MS/s with a live AD9226 to close the derating
+  measurement.
+- Promote the ICAPE2 writer from GPIO-paced to a small AXI-Stream FIFO
+  frontend — projected to cut swap time from 390 ms toward the ~11 ms
+  theoretical (1.07 MB @ 100 MHz x32).
+
+---
+
+# EXPERIMENT 25 Jul 2026 09:28:00 M6: PDM Pipeline RM — Live Audio from the On-Board Mic via DFX Swap :complete:
+
+## 1. Hypothesis
+
+Does a real sensor pipeline — PDM capture + CIC decimation — work as a
+reconfigurable module, fed by the on-board ADMP421 microphone, with zero
+external hardware?
+
+## 2. How
+
+- **Equipment:** Nexys A7-100T; on-board ADMP421 PDM mic (M_CLK J5,
+  M_DATA H5, M_LRSEL F5 tied 0 in static).
+- **Software:** `hw/dfx/rm/rm_pdm.v`: 2.38 MHz PDM clock, CIC N=4 R=64
+  (→ ~37 kHz PCM), leaky DC removal, 1024-sample energy windows; AXI-Lite
+  regs (PCM, energy, window count). 344 LUT / 0 BRAM out of context —
+  **1.7% of the ~20k-LUT partition, far beyond the ≥30% headroom gate.**
+- **Benchmarks:** loader swaps PDM RM in at runtime, then a 200k-read
+  register probe.
+
+### Key commands
+
+```bash
+# part of the run_dfx_test.xsdb sequence (loader phase 2)
+```
+
+## 3. Observations
+
+- Swap-in via ICAPE2 writer: 390 ms, sig 0x9D3A0001.
+- Probe: **PCM range [0xFFFFEF1A, 0x00000428] = [-4326, +1064]** — live
+  audio (room noise) with DC removed; **energy window peak 3,666,747**;
+  window counter advancing. `PDM: PASS (live audio)`.
+- Window counter advanced only 2 during the probe (expected ~15-70
+  depending on AXI read pacing) — the probe loop's uncached AXI reads
+  dominate; not a pipeline fault (PCM variance proves data flow).
+
+## 4. Data analysis
+
+First real sensor pipeline running as a DFX module — the project's core
+thesis demonstrated end to end: physical transducer → RM DSP →
+AXI registers → CPU, loaded at runtime into a partition that moments
+before held a different personality. The on-board-mic-first strategy paid
+off exactly as the roadmap intended: zero wiring risk isolated the RTL
+bring-up. The 6-mic JA array is now a connector-plugging exercise plus a
+6-channel elaboration of this RM (CIC per channel + delay-and-sum).
+
+## 5. Ideas for future experiments
+
+- 6-mic array RM on JXADC; beam steering; tone-localization gate.
+- Stream PCM to DDR2 via AXIS/DMA (boundary already reserves the plan's
+  M_AXIS) instead of register polling.
+- Feed energy telemetry into the FreeRTOS sensor blackboard + 7-seg VU.
+
+---
+
+# EXPERIMENT 25 Jul 2026 09:26:00 M5: MicroBlaze-Driven DFX Swaps at 390 ms — HWICAP Broken, Raw ICAPE2 Writer Works :complete:
+
+## 1. Hypothesis
+
+Can the MicroBlaze load partial bitstreams into the DFX partition at
+runtime through the configuration port, with the static region running
+uninterrupted — and what does a swap cost?
+
+## 2. How
+
+- **Equipment:** Nexys A7-100T on JTAG (staging only; TAP quiesced during
+  ICAP access).
+- **Software:** DFX flow (`hw/dfx/build_dfx.tcl`): static synth with
+  black-box `rm_slot` stub, 4 RM configs, pblock = explicit site ranges
+  for clock region X1Y2 (SLICE_X52Y100:X89Y149 + DSP48_X1Y40:X2Y59,
+  RESET_AFTER_RECONFIG + SNAPPING), `pr_verify` gate, partials via
+  `write_bitstream -bin_file`. Loader `sw/dfx_load` stages partials in
+  DDR2, decouples, streams to the config port, verifies RM signatures,
+  measures with axi_timer.
+- **Benchmarks:** B→A→B hello-swap sequence + 4-personality rotation.
+
+### Key commands
+
+```bash
+~/Vivado/2025.2/Vivado/bin/vivado -mode batch -source hw/dfx/build_dfx.tcl
+~/Vivado/2025.2/Vivado/bin/xsdb hw/scripts/run_dfx_test.xsdb 1
+```
+
+## 3. Observations
+
+- Flow: `pr_verify` PASS across all 4 configs; partials **1,071,052 B**
+  each (plan estimated ~1.3 MB for a 2-CR partition; actual pblock = 1 CR).
+- **AXI HWICAP v3.0 is non-functional on this design**: every write
+  transfer wedges at the first 16-word chunk — CR write bit stuck at 1,
+  FIFO drained (WFV=63), DALIGN never set — with dummy-pad words, so
+  content-independent. Reproduced identically across: eos_in dangling
+  (first bug found — must be tied high, but insufficient), eos_in tied,
+  100 MHz sync icap_clk, 20 MHz async icap_clk, JTAG active, JTAG fully
+  quiesced, CPU-driven and JTAG-poked register sequences.
+- **Workaround that works: raw ICAPE2 writer** — second ICAP site
+  instantiated in the top wrapper, GPIO-paced (32-bit word + go-toggle →
+  one-cycle CSIB pulse), UG470 bit-reversal in RTL. **Swap = 390,191 µs**
+  (1.07 MB, ~1.46 µs/word, 2 AXI writes each).
+- Independent validation: JTAG `fpga -partial` swaps A→B→PDM with correct
+  signatures — partition/partials/decoupler proven separate from the
+  loader path.
+- Gate transcript: `sig=5b5b5b5b` after B (counter decrements),
+  `sig=a5a5a5a5` after A (increments), static heartbeat printing between
+  swaps, `DFX: PASS (all swaps ok)`.
+
+## 4. Data analysis
+
+M5's substance — runtime self-reconfiguration under soft-CPU control with
+measured cost — is delivered at **0.39 s/swap**, squarely inside the
+plan's 260-430 ms PIO estimate, despite arriving via a different port
+than intended. The HWICAP failure is the session's biggest tool finding:
+symptom is a complete write-FSM stall, insensitive to every documented
+configuration axis we varied; the raw-ICAPE2 fallback both unblocks the
+project and isolates the fault to the IP core rather than the device,
+clocking, bitstream format, or arbitration. 390 ms is GPIO-pacing bound,
+not ICAP bound — a FIFO-fronted writer reaches ~11 ms theoretical.
+RESET_AFTER_RECONFIG semantics confirmed by per-load counter resets.
+
+## 5. Ideas for future experiments
+
+- File/repro-case the HWICAP wedge against 2025.2 (minimal design:
+  MicroBlaze + HWICAP only); test 2023.x for regression.
+- AXIS-FIFO front the ICAPE2 writer: target <20 ms swaps.
+- QSPI slot table + CRC per plan §3 (partials currently staged over JTAG).
+- Cached-CPU ICAP streaming: measure loader speedup with dcache on DDR
+  reads (this run's loader executes uncached from LMB).
 
 ---
 

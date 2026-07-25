@@ -171,7 +171,56 @@ nonzero on failure: `make validate` (both boards), `make ooc-rm`
 every prompt logged in `docs/prompts.md`; George pushes — the agent never
 pushes.
 
-## 5. Standing risks
+## 5. Session status — 25 Jul 2026 (M0–M7 executed)
+
+All eight roadmap milestones were driven to their gates in one overnight
+session (24 Jul 22:00 → 25 Jul 09:30), notebook entries 11–19, branch
+`gnn-a7-tricorder`. Everything below ran on the physically attached
+Nexys A7-100T.
+
+| M | Result | Measured |
+|---|---|---|
+| M0 | PASS | Blinky via JTAG; 3.83 MB bitstream; die 48.6 °C; **no udev installer needed** (plugdev covers FT2232); DFX license-free in 2025.2 |
+| M1 | PASS | Nexys XDC 58/58 ports placed, 0 DRC; Arty control 75/75 under 2025.2; cam_pclk clean on H16 (sole P-side MRCC) |
+| M2 | PASS | MicroBlaze hello on /dev/ttyUSB1; BSP-free 250 B ELF; **CPU ratified: classic MicroBlaze** (no MB-V FreeRTOS port in 2025.2) |
+| M3 | PASS | DDR2 MIG from Digilent prj: init_calib + **128 MiB memtest 0 errors × 3 config cycles** |
+| M4 | PASS | FreeRTOS ticks 60 s; ADT7420 31.2–31.5 °C on-board; external scan correctly empty (no harness) |
+| M5 | PASS | **Runtime swaps 390 ms**/1.07 MB partial, MicroBlaze-driven, static uninterrupted; pr_verify across 4 configs |
+| M6 | PASS | PDM RM live audio from on-board mic (PCM −4326…+1064, energy windows); RM = 1.7% of partition |
+| M7 | PASS* | Sonar RM swaps in, 3 bursts fired/counted, floating-ADC rail signature as predicted; *echo ranging + ADC derating measurement need the harness |
+
+**Deviations from the plan as written:**
+
+1. **AXI HWICAP v3.0 does not work here** — write FSM wedges on the first
+   transfer regardless of eos_in (must be tied high — first bug found),
+   icap_clk speed/asyncness, JTAG state, or data content. Replaced by a
+   **raw ICAPE2 writer** (second ICAP site, GPIO-paced, UG470 bit-reversal
+   in RTL) — 390 ms/swap, GPIO-bound; a FIFO front-end reaches ~11 ms.
+2. **MicroBlaze classic, not -V**: 2025.2 ships no FreeRTOS port for
+   MicroBlaze-V (BSP ports = ARM + MicroBlazeV9 only).
+3. **Caches are mandatory, not optional**: `cache "None"` block automation
+   leaves no CPU instruction path to DDR; FreeRTOS (104 KB) cannot fit
+   LMB. 16 KB I/D caches, MIG behind the cached port; `.vectors.*` must
+   stay in LMB when relinking to DDR.
+4. **MIG owns the XADC** (Digilent prj `XADC_En`): drop the separate
+   xadc_wizard idea; program.tcl's hw_server temp read still works.
+5. **Pblock needed explicit site ranges** (SLICE_X52Y100:X89Y149 +
+   DSP48_X1Y40:X2Y59): CLOCKREGION+SNAPPING snapped X1Y2 to empty. X1Y2
+   has no BRAM — move to X1Y1 when an RM needs BRAM.
+6. **Partial format**: `write_bitstream -bin_file` + software byteswap is
+   the working combination; `write_cfgmem SMAPx32` output is bit-swapped
+   for SelectMAP and never syncs the ICAP.
+7. **RM boundary evolved to v3** (AXI-Lite + PDM + sonar/AFE/adcdac pins)
+   before first hardware swap — cheap now, expensive later.
+
+**Hardware-blocked (next bench session):** JA sensor harness (5×I2C,
+pull-ups) → M4 full scan; 6-mic array → beamforming/localization;
+ultrasound chain → echo ranging + 200 Ω derating sweep; camera + DAC per
+master XDC. **Software next:** FIFO-fronted ICAPE2 writer, QSPI partial
+slots + CRC, FreeRTOS dfx_loader task folding in `sw/dfx_load` logic,
+Ethernet/RMII shim, 1 hr FreeRTOS soak, HWICAP minimal repro for AMD.
+
+## 6. Standing risks
 
 | Risk | Mitigation point |
 |---|---|

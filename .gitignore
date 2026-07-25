@@ -8,3 +8,4 @@ vivado_pid*.debug
 build/
 clockInfo.txt
 *.elf
+hd_visual/

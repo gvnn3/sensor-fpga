@@ -21,6 +21,7 @@
 #define UART_BASE   0x40600000u
 #define GPIO_BASE   0x40000000u /* ch1 LEDs, ch2 init_calib */
 #define GPIO1_BASE  0x40010000u /* ch1 bit0 = decouple */
+#define GPIO2_BASE  0x40020000u /* ch1 = ICAPE2 writer data, ch2 = go toggle */
 #define HWICAP_BASE 0x44A00000u
 #define TIMER_BASE  0x41C00000u
 #define RM_BASE     0x44A10000u
@@ -41,6 +42,8 @@
 
 #define GPIO_DATA    (*(volatile unsigned int *)(GPIO_BASE + 0x0))
 #define DECOUPLE     (*(volatile unsigned int *)(GPIO1_BASE + 0x0))
+#define ICAPW_DATA   (*(volatile unsigned int *)(GPIO2_BASE + 0x0))
+#define ICAPW_GO     (*(volatile unsigned int *)(GPIO2_BASE + 0x8))
 
 #define RM_COUNT     (*(volatile unsigned int *)(RM_BASE + 0x0))
 #define RM_SIG       (*(volatile unsigned int *)(RM_BASE + 0x4))
@@ -112,8 +115,50 @@ static unsigned int icap_load(const unsigned int *words, unsigned int nwords,
             ICAP_WF = swap ? bswap(words[i]) : words[i];
         }
         ICAP_CR = ICAP_CR_WRITE;
-        while (ICAP_CR & ICAP_CR_WRITE)
-            ;
+        for (unsigned int spin = 0; ICAP_CR & ICAP_CR_WRITE; spin++) {
+            if (spin > 20000000u) {           /* ~1 s: wedged */
+                puts_uart("ICAP WEDGE at word ");
+                puthex(i);
+                puts_uart(" CR=");
+                puthex(ICAP_CR);
+                puts_uart(" SR=");
+                puthex(ICAP_SR);
+                puts_uart(" WFV=");
+                puthex(ICAP_WFV);
+                puts_uart("\r\n");
+                return 0;
+            }
+        }
+        if ((i & 0xFFFF) < 16) {              /* every ~64K words */
+            puts_uart("  icap ");
+            puthex(i);
+            puts_uart("/");
+            puthex(nwords);
+            puts_uart(" SR=");
+            puthex(ICAP_SR);
+            puts_uart("\r\n");
+        }
+    }
+
+    t1 = TMR_TCR0;
+    return t1 - t0;
+}
+
+/* Fallback: raw ICAPE2 writer in the top wrapper, one word per go-toggle */
+static unsigned int gpio_icap_load(const unsigned int *words,
+                                   unsigned int nwords, int swap)
+{
+    unsigned int t0, t1, go = ICAPW_GO & 1u;
+
+    TMR_CSR0 = 0x0;
+    TMR_CSR0 = 0x20;
+    TMR_CSR0 = 0x80;
+    t0 = TMR_TCR0;
+
+    for (unsigned int i = 0; i < nwords; i++) {
+        ICAPW_DATA = swap ? bswap(words[i]) : words[i];
+        go ^= 1u;
+        ICAPW_GO = go;
     }
 
     t1 = TMR_TCR0;
@@ -133,6 +178,10 @@ static int swap_to(const char *name, unsigned int addr, unsigned int bytes,
 
     DECOUPLE = 1;
     ticks = icap_load((const unsigned int *)addr, bytes / 4, swap);
+    if (ticks == 0) {
+        puts_uart("DFX: HWICAP wedged -> raw ICAPE2 writer fallback\r\n");
+        ticks = gpio_icap_load((const unsigned int *)addr, bytes / 4, swap);
+    }
     DECOUPLE = 0;
 
     puts_uart("DFX: icap stream ");
@@ -199,6 +248,13 @@ int main(void)
     puts_uart("DFX: loader up; byteswap=");
     putdec((unsigned)swap);
     puts_uart("\r\n");
+
+    /* Let the JTAG session die completely before touching the ICAP:
+     * 7-series config arbitration gives JTAG priority, and an active TAP
+     * can starve ICAP transfers. ~6 s at 100 MHz. */
+    puts_uart("DFX: settling (JTAG quiesce)\r\n");
+    for (volatile unsigned int i = 0; i < 150000000u; i++)
+        ;
     puts_uart("DFX: initial sig=");
     puthex(RM_SIG);
     puts_uart("\r\n");

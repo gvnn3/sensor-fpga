@@ -28,6 +28,8 @@ set_property -dict [list \
     CONFIG.CLKOUT1_REQUESTED_OUT_FREQ {100.000} \
     CONFIG.CLKOUT2_USED {true} \
     CONFIG.CLKOUT2_REQUESTED_OUT_FREQ {200.000} \
+    CONFIG.CLKOUT3_USED {true} \
+    CONFIG.CLKOUT3_REQUESTED_OUT_FREQ {20.000} \
     CONFIG.RESET_TYPE {ACTIVE_LOW} \
     CONFIG.RESET_PORT {resetn} \
 ] $clk_wiz
@@ -138,7 +140,10 @@ apply_bd_automation -rule xilinx.com:bd_rule:axi4 -config { \
     Master {/microblaze_0 (Periph)} Slave {/axi_hwicap_0/S_AXI_LITE} \
     ddr_seg {Auto} intc_ip {New AXI Interconnect} master_apm {0} \
 } [get_bd_intf_pins axi_hwicap_0/S_AXI_LITE]
-connect_bd_net [get_bd_pins clk_wiz_0/clk_out1] [get_bd_pins axi_hwicap_0/icap_clk]
+# icap_clk slowed to 20 MHz + async mode — one more attempt at the v3 core;
+# the raw ICAPE2 writer below is the working fallback either way
+set_property CONFIG.C_ENABLE_ASYNC {1} [get_bd_cells axi_hwicap_0]
+connect_bd_net [get_bd_pins clk_wiz_0/clk_out3] [get_bd_pins axi_hwicap_0/icap_clk]
 # eos_in MUST be tied high: the HWICAP write FSM waits for end-of-startup
 # and never completes a transfer if this dangles (CR write bit sticks at 1)
 set eos [create_bd_cell -type ip -vlnv [ipv xlconstant] xlconstant_eos]
@@ -174,6 +179,22 @@ connect_bd_net [get_bd_pins rst_clk_wiz_0_100M/peripheral_aresetn] \
 connect_bd_net [get_bd_pins axi_gpio_1/gpio_io_o] [get_bd_pins dfx_decoupler_0/decouple]
 externalize dfx_decoupler_0/rp_rm rm_axi
 
+# Raw ICAPE2 writer control (fallback DFX load path): axi_gpio_2 ch1 =
+# 32-bit config word, ch2 bit0 = go-toggle. The ICAPE2 + pulse logic live
+# in the top-level wrapper (hw/rtl/tricorder_m5_top.v).
+set gpio2 [create_bd_cell -type ip -vlnv [ipv axi_gpio] axi_gpio_2]
+set_property -dict [list CONFIG.C_GPIO_WIDTH {32} CONFIG.C_ALL_OUTPUTS {1} \
+    CONFIG.C_IS_DUAL {1} CONFIG.C_GPIO2_WIDTH {1} CONFIG.C_ALL_OUTPUTS_2 {1}] $gpio2
+apply_bd_automation -rule xilinx.com:bd_rule:axi4 -config { \
+    Clk_master {Auto} Clk_slave {Auto} Clk_xbar {Auto} \
+    Master {/microblaze_0 (Periph)} Slave {/axi_gpio_2/S_AXI} \
+    ddr_seg {Auto} intc_ip {New AXI Interconnect} master_apm {0} \
+} [get_bd_intf_pins axi_gpio_2/S_AXI]
+create_bd_port -dir O -from 31 -to 0 icapw_data
+connect_bd_net [get_bd_ports icapw_data] [get_bd_pins axi_gpio_2/gpio_io_o]
+create_bd_port -dir O -from 0 -to 0 icapw_go
+connect_bd_net [get_bd_ports icapw_go] [get_bd_pins axi_gpio_2/gpio2_io_o]
+
 # RM clock + reset out to the top-level wrapper
 create_bd_port -dir O -type clk rm_clk
 connect_bd_net [get_bd_ports rm_clk] [get_bd_pins clk_wiz_0/clk_out1]
@@ -187,6 +208,7 @@ assign_bd_address
 set_property offset 0x40600000 [get_bd_addr_segs {microblaze_0/Data/SEG_axi_uartlite_0_Reg}]
 set_property offset 0x40000000 [get_bd_addr_segs {microblaze_0/Data/SEG_axi_gpio_0_Reg}]
 set_property offset 0x40010000 [get_bd_addr_segs {microblaze_0/Data/SEG_axi_gpio_1_Reg}]
+set_property offset 0x40020000 [get_bd_addr_segs {microblaze_0/Data/SEG_axi_gpio_2_Reg}]
 set_property offset 0x41C00000 [get_bd_addr_segs {microblaze_0/Data/SEG_axi_timer_0_Reg}]
 set rm_seg [get_bd_addr_segs -of_objects [get_bd_addr_spaces microblaze_0/Data] \
     -filter {NAME =~ "*rm*"}]
