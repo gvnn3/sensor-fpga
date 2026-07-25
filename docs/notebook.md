@@ -17,6 +17,7 @@ or removed at runtime from the FPGA dynamic (partial reconfiguration) region.
 
 # Table of Contents
 
+13. [EXPERIMENT 24 Jul 2026 22:52:30 M1: Nexys A7 Master XDC + Two-Board Validation Gate](#24-jul-2026-225230) :complete:
 12. [EXPERIMENT 24 Jul 2026 22:38:43 M0 Bring-Up: Blinky on the Nexys A7-100T via JTAG](#24-jul-2026-223843) :complete:
 11. [EXPERIMENT 24 Jul 2026 22:31:09 Board Retarget Plan: Nexys A7-100T (Ultracode Multi-Agent Planning)](#24-jul-2026-223109) :complete:
 10. [EXPERIMENT  5 Jul 2026 05:14:19 Vivado Validation of the Master XDC](#5-jul-2026-051419) :complete:
@@ -29,6 +30,82 @@ or removed at runtime from the FPGA dynamic (partial reconfiguration) region.
 3. [EXPERIMENT  4 Jul 2026 07:34:03 OHWR Cores for the Dynamic Region of This Host (Alveo U250)](#4-jul-2026-073403) :complete:
 2. [EXPERIMENT  4 Jul 2026 07:26:08 Vitis Libraries Suitability for the FPGA Dynamic Region](#4-jul-2026-072608) :complete:
 1. [EXPERIMENT  4 Jul 2026 07:20:01 Repository and Notebook Initialization](#4-jul-2026-072001) :complete:
+
+---
+
+# EXPERIMENT 24 Jul 2026 22:52:30 M1: Nexys A7 Master XDC + Two-Board Validation Gate :complete:
+
+## 1. Hypothesis
+
+Can the docs/plan.md §2 pin plan (40/40 header pins, full sensor
+complement, ADC/DAC bus shared) be expressed as a concrete XDC for the
+Nexys A7-100T that survives synthesis + placement in Vivado 2025.2 — and
+does the old Arty XDC still validate under 2025.2 as a control?
+
+## 2. How
+
+- **Equipment:** none needed (placement-only validation); target
+  xc7a100tcsg324-1 for both boards.
+- **Software:** Vivado 2025.2. Pin LOCs sourced from the current Digilent
+  Nexys-A7-100T-Master.xdc (github.com/Digilent/digilent-xdc) — every plan
+  §2 pin re-checked against it before writing; zero discrepancies. (The
+  stale local copy in tutorial-chp-fpga with LVDS JXADC lines was NOT
+  used, per plan risk table.)
+- **Benchmarks:** new `hw/rtl/tricorder_top_nexys.v` (58-port stub:
+  18 infra + 40 sensor pins; heartbeat folds all inputs; sw[3] gates the
+  shared-bus tristate so both IOBUF directions exist),
+  `hw/constraints/tricorder-nexys-a7-100t.xdc`, and rewritten
+  `hw/scripts/validate_xdc.tcl` (parameterized, CI-gate exit codes).
+
+### Key commands
+
+```bash
+V=~/Vivado/2025.2/Vivado/bin/vivado
+$V -mode batch -nolog -nojournal -source hw/scripts/validate_xdc.tcl -tclargs nexys-a7
+$V -mode batch -nolog -nojournal -source hw/scripts/validate_xdc.tcl -tclargs arty-a7
+```
+
+## 3. Observations
+
+- **nexys-a7: PASS — 58/58 ports constrained and placed, 0 DRC errors,
+  0 critical warnings, exit 0.** Both clocks accepted: sys_clk_pin 10.000
+  ns on E3, **cam_pclk_pin 41.660 ns on H16** (`IO_L13P_T2_MRCC_15`, the
+  board's only P-side clock-capable header pin) — no
+  `CLOCK_DEDICATED_ROUTE` waiver needed.
+- **arty-a7: PASS — 75/75 ports, 0 DRC errors, exit 0** under 2025.2 —
+  the entry-10 result (2019.2/2023.1) reproduces on the new tool.
+- Script bug found during bring-up: `set_msg_config -severity {...} -count 1`
+  is not valid 2025.2 syntax (`ERROR: [Common 17-170] Unknown option
+  '-count'`); correct form for counting is
+  `get_msg_config -count -severity {CRITICAL WARNING}`.
+- Validator now enforces three gates with nonzero exit: unplaced ports,
+  DRC errors parsed from the report, accumulated critical warnings.
+  Reports land at `build/validate_<board>_{drc,util,clocks}.rpt`.
+
+## 4. Data analysis
+
+The plan §2 allocation is now toolchain-proven: all 40 header pins place
+legally at LVCMOS33, the shared adcdac bus synthesizes with real IOBUFs
+(tristate exercised both ways), and the single-P-side-MRCC finding holds
+up — cam_pclk on H16 was accepted as a clean dedicated clock route, which
+would have failed on any of the N-side CC pins the draft plans proposed.
+The Arty control run doubles as the 2025.2 regression check the roadmap
+demanded: no silent behavior drift between Vivado generations for this
+flow. The validator's exit-code gates make `make validate` (CI story)
+a one-liner per board. Port-count arithmetic confirms the plan: 58 Nexys
+ports = 75 Arty ports − 2 pup − 2 cam rst/pwdn − 2 SCCB − 1 OTR −
+1 afe_enable − 9 DAC (bus shared).
+
+## 5. Ideas for future experiments
+
+- M2: static-region block design (MicroBlaze-V + FreeRTOS decision to
+  ratify), Tcl-scripted BD, hello over /dev/ttyUSB1.
+- Wire `validate_xdc.tcl` both-board run into a `hw/Makefile` target.
+- Add AD9226 `create_clock`/input delays for the system-synchronous
+  capture once the derated rate is fixed (plan: measure at M7).
+- Consider `tricorder_top` core-module refactor (per-board wrappers) when
+  real static-region logic replaces the stubs at M2 — premature while
+  both tops are stubs.
 
 ---
 

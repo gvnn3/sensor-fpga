@@ -6,6 +6,12 @@ chronological order (newest first). Each entry has the date and time
 
 ---
 
+## 24 Jul 2026 22:42:00
+
+> Do M1
+
+---
+
 ## 24 Jul 2026 22:36:30
 
 > Do you need me to run the udev installer yet?
