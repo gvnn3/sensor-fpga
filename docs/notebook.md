@@ -17,6 +17,7 @@ or removed at runtime from the FPGA dynamic (partial reconfiguration) region.
 
 # Table of Contents
 
+15. [EXPERIMENT 24 Jul 2026 23:20:00 M3: DDR2 via MIG — 128 MiB Memtest Clean](#24-jul-2026-232000) :complete:
 14. [EXPERIMENT 24 Jul 2026 22:57:00 M2: MicroBlaze Static Region — Hello over UART (CPU Decision Ratified)](#24-jul-2026-225700) :complete:
 13. [EXPERIMENT 24 Jul 2026 22:52:30 M1: Nexys A7 Master XDC + Two-Board Validation Gate](#24-jul-2026-225230) :complete:
 12. [EXPERIMENT 24 Jul 2026 22:38:43 M0 Bring-Up: Blinky on the Nexys A7-100T via JTAG](#24-jul-2026-223843) :complete:
@@ -31,6 +32,76 @@ or removed at runtime from the FPGA dynamic (partial reconfiguration) region.
 3. [EXPERIMENT  4 Jul 2026 07:34:03 OHWR Cores for the Dynamic Region of This Host (Alveo U250)](#4-jul-2026-073403) :complete:
 2. [EXPERIMENT  4 Jul 2026 07:26:08 Vitis Libraries Suitability for the FPGA Dynamic Region](#4-jul-2026-072608) :complete:
 1. [EXPERIMENT  4 Jul 2026 07:20:01 Repository and Notebook Initialization](#4-jul-2026-072001) :complete:
+
+---
+
+# EXPERIMENT 24 Jul 2026 23:20:00 M3: DDR2 via MIG — 128 MiB Memtest Clean :complete:
+
+## 1. Hypothesis
+
+Does MIG 7-series in Vivado 2025.2, configured from Digilent's Nexys
+A7-100T board-file mig.prj, calibrate the on-board 128 MiB DDR2
+(MT47H64M16HR-25E) and pass a full-range software memtest from the
+MicroBlaze?
+
+## 2. How
+
+- **Equipment:** Nexys A7-100T on JTAG; DDR2 MT47H64M16HR-25E (16-bit,
+  650 MT/s, 3077 ps, 4:1 PHY ratio).
+- **Software:** Vivado 2025.2. MIG config fetched from
+  github.com/Digilent/vivado-boards `nexys-a7-100t/D.0/1.3/mig.prj`
+  (committed as `hw/mig/mig.prj`); BD variant `hw/mig/mig-bd.prj` differs
+  only in `SystemClock: Single-Ended -> No Buffer` (+ InputClkFreq 100)
+  so the fabric clk_wiz drives sys_clk_i (100 MHz) and clk_ref_i
+  (200 MHz, new clk_wiz output) instead of MIG owning the clock pin.
+- **Benchmarks:** `sw/memtest` (bare-metal, 1425 B): waits for
+  init_calib_complete (GPIO ch2), address-in-address + inverted full-range
+  passes, walking-ones — all through the uncached MicroBlaze data port.
+
+### Key commands
+
+```bash
+V=~/Vivado/2025.2/Vivado/bin
+$V/vivado -mode batch -nolog -nojournal -source hw/scripts/build_static.tcl
+$V/xsdb hw/scripts/run_elf.xsdb build/static_region.bit sw/memtest/memtest.elf
+timeout 150 cat /dev/ttyUSB1   # 115200 raw
+```
+
+## 3. Observations
+
+- Build: **PASS, WNS +1.313 ns**. Connection automation inserted the
+  AXI clock converter (`auto_cc`) and an 81.25 MHz ui_clk reset domain
+  (`rst_mig_7series_0_81M`) — the plan's "one contained CDC" appeared
+  exactly as predicted.
+- **Run 1: `init_calib_complete=1`, then `MEMTEST: PASS errors=0
+  (128 MiB)`.** Repeat across two further full configuration cycles
+  (JTAG reprogram → fresh calibration): **3/3 PASS, 0 errors.** (True
+  power-cycles need hands on the board — config-cycle recalibration is
+  the proxy used here.)
+- Full 4-pass test over the uncached DP takes ~1-2 min — usable but slow;
+  caches (M4+) or DMA will be the real data path.
+- Digilent's prj carries `XADC_En Enabled`: **the MIG owns the die XADC**
+  — the plan's separate xadc_wizard idea is off the table; internal
+  telemetry reads go through MIG's temperature path / hw_server.
+
+## 4. Data analysis
+
+The DDR2-vs-DDR3 retarget risk is retired: MIG 7-series handled the DDR2
+part natively from Digilent's own configuration with zero hand-edits
+beyond the No-Buffer clocking change, and pin constraints came from the
+prj (DDR2 pins never touch our XDC, as planned). init_calib_complete
+visible to software via GPIO ch2 proved the right observability hook —
+memtest gates on it rather than racing calibration. Address map now:
+DDR2 128 MiB at 0x80000000, UART 0x40600000, GPIO 0x40000000 — pinned in
+the BD so bare-metal programs stay header-free.
+
+## 5. Ideas for future experiments
+
+- M4: AXI IIC x2 + timer + intc into the BD; FreeRTOS via Vitis SDT.
+- Enable MicroBlaze caches against DDR2 once FreeRTOS runs from it
+  (M4+); measure memtest speedup as a cache sanity check.
+- George: when convenient, 3 real power cycles of the board re-running
+  memtest closes the letter of the roadmap gate.
 
 ---
 
