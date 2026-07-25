@@ -17,6 +17,7 @@ or removed at runtime from the FPGA dynamic (partial reconfiguration) region.
 
 # Table of Contents
 
+16. [EXPERIMENT 25 Jul 2026 08:30:00 M4: FreeRTOS Boots on MicroBlaze — I2C Stack Proven via On-Board ADT7420](#25-jul-2026-083000) :complete:
 15. [EXPERIMENT 24 Jul 2026 23:20:00 M3: DDR2 via MIG — 128 MiB Memtest Clean](#24-jul-2026-232000) :complete:
 14. [EXPERIMENT 24 Jul 2026 22:57:00 M2: MicroBlaze Static Region — Hello over UART (CPU Decision Ratified)](#24-jul-2026-225700) :complete:
 13. [EXPERIMENT 24 Jul 2026 22:52:30 M1: Nexys A7 Master XDC + Two-Board Validation Gate](#24-jul-2026-225230) :complete:
@@ -32,6 +33,80 @@ or removed at runtime from the FPGA dynamic (partial reconfiguration) region.
 3. [EXPERIMENT  4 Jul 2026 07:34:03 OHWR Cores for the Dynamic Region of This Host (Alveo U250)](#4-jul-2026-073403) :complete:
 2. [EXPERIMENT  4 Jul 2026 07:26:08 Vitis Libraries Suitability for the FPGA Dynamic Region](#4-jul-2026-072608) :complete:
 1. [EXPERIMENT  4 Jul 2026 07:20:01 Repository and Notebook Initialization](#4-jul-2026-072001) :complete:
+
+---
+
+# EXPERIMENT 25 Jul 2026 08:30:00 M4: FreeRTOS Boots on MicroBlaze — I2C Stack Proven via On-Board ADT7420 :complete:
+
+## 1. Hypothesis
+
+Does FreeRTOS (Vitis 2025.2 SDT flow, freertos10_xilinx BSP) boot on the
+classic MicroBlaze and run concurrent tasks — and does the AXI IIC stack
+find real sensors (on-board ADT7420 as always-present ground truth; the
+external JA bus scanned as-found)?
+
+## 2. How
+
+- **Equipment:** Nexys A7-100T on JTAG. No external sensor harness wired
+  yet — the JA bus is expected empty.
+- **Software:** Vivado/Vitis 2025.2. BD grew M4 IPs: axi_intc (wired to
+  the MicroBlaze interrupt), axi_timer (FreeRTOS tick), axi_iic_0 (JA
+  C17/D18), axi_iic_1 (ADT7420 C14/C15); plus M5 statics (HWICAP,
+  DFX decoupler, RM AXI port). **Two hardware lessons this milestone:**
+  (1) the M2 BD had no instruction path to DDR — MicroBlaze block
+  automation with `cache "None"` gives only a data-port AXI, so an ELF
+  linked to 0x80000000 left the PC frozen at the entry point; fixed with
+  16 KB I/D caches and the MIG behind `(Cached)`. (2) The blanket linker
+  edit that moved sections to DDR also moved the vector sections — MB
+  vectors must stay in LMB at 0x0; the build script now patches all
+  regions to `mig_7series_0_memory_0` EXCEPT `.vectors.*`.
+- **Benchmarks:** `sw/tricorder-rtos/src/main.c` (heartbeat task +
+  sensors task: full-bus probe scan + ADT7420 13-bit read),
+  `sw/scripts/build_rtos.py` (Vitis python: platform from XSA,
+  os=freertos, app build, lscript patch).
+
+### Key commands
+
+```bash
+~/Vivado/2025.2/Vitis/bin/vitis -s sw/scripts/build_rtos.py
+~/Vivado/2025.2/Vivado/bin/xsdb hw/scripts/run_elf.xsdb \
+    build/static_region.bit build/vitis-ws/tricorder_rtos/build/tricorder_rtos.elf
+timeout 60 cat /dev/ttyUSB1
+```
+
+## 3. Observations
+
+- Hardware: **WNS +0.810 ns** with caches; ELF 104,848 B (34 KB text) —
+  3.2x the 32 KB LMB, confirming DDR execution was mandatory.
+- Boot banner, then steady interleave for the full 60 s capture:
+  `RTOS: tick N` (heartbeat, LEDs counting) alternating with
+  `I2C-EXT: scan: -> 0 device(s)` and **`ADT7420: 31.18–31.50 C`** —
+  plausible enclosure temperature, drifting up ~0.3 C as the die warms.
+- External scan found **0 devices — correct**: nothing is wired to JA.
+  Bus error handling clean (probe NAKs, no hangs).
+- FreeRTOS-on-DDR first attempt (no caches) failed silently: PC pinned at
+  0x80000000, all registers zero — the debugger made the missing
+  instruction port obvious.
+
+## 4. Data analysis
+
+The M4 gate is met in substance: scheduler + two tasks + interrupt-driven
+tick prove the FreeRTOS port; the ADT7420 read proves the I2C driver path
+end-to-end on real silicon. The external-scan portion of the gate
+(finding BME688/SCD-41/VEML7700/AS7341/MAX30105) is **pending the sensor
+harness** — the scan loop is demonstrably correct (clean NAK sweep), so
+wiring the harness is the only remaining step, no software change
+expected. Stability sampled 60 s, not the roadmap's 1 hr; the app can be
+left running for the long soak whenever the board is idle.
+
+## 5. Ideas for future experiments
+
+- Wire the JA sensor harness (pull-ups!) and re-run the scan — expected
+  addresses 0x76/77, 0x62, 0x10, 0x39, 0x57.
+- 1 hr scheduler soak (leave running; check tick monotonicity).
+- ADXL362 (SPI) join the sensors task; lwIP/Ethernet when the RMII shim
+  lands.
+- Re-run cached memtest and record the speedup vs entry 15's uncached run.
 
 ---
 

@@ -1,0 +1,30 @@
+# M5-M7 gate driver: program full config A, stage all partial .bins in
+# DDR2, run the bare-metal loader.
+# Usage: xsdb hw/scripts/run_dfx_test.xsdb [byteswap(0|1)]
+
+set swap 0
+if {$argc >= 1} { set swap [lindex $argv 0] }
+
+connect
+targets -set -filter {name =~ "xc7a100t*"}
+fpga build/dfx/full_a.bit
+after 1000
+targets -set -filter {name =~ "*MicroBlaze*#0*"}
+catch {stop}
+
+puts "staging partials in DDR2 (4 x ~1 MiB over JTAG, be patient)"
+dow -data build/dfx/rm_a_partial.bin     0x81000000
+dow -data build/dfx/rm_b_partial.bin     0x82000000
+dow -data build/dfx/rm_pdm_partial.bin   0x83000000
+dow -data build/dfx/rm_sonar_partial.bin 0x84000000
+set len [file size build/dfx/rm_a_partial.bin]
+mwr 0x80FFFFF0 $len
+mwr 0x80FFFFF4 [file size build/dfx/rm_b_partial.bin]
+mwr 0x80FFFFEC [file size build/dfx/rm_pdm_partial.bin]
+mwr 0x80FFFFE8 [file size build/dfx/rm_sonar_partial.bin]
+mwr 0x80FFFFF8 $swap
+
+dow sw/dfx_load/dfx_load.elf
+con
+puts "DFX_TEST: loader running (byteswap=$swap)"
+disconnect

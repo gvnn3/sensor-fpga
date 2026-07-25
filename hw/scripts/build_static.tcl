@@ -10,8 +10,13 @@ create_project -force m2_static build/m2_proj -part $part
 source hw/bd/static_region.tcl
 
 make_wrapper -files [get_files static_region.bd] -top -import
-add_files -fileset constrs_1 hw/constraints/m2-static-nexys-a7.xdc
-set_property top static_region_wrapper [current_fileset]
+# Top = DFX top with RM-A as an ordinary source (no black box here); the
+# DFX flow (hw/dfx/build_dfx.tcl) does its own synthesis with rm_slot
+# black-boxed. This build feeds the M4 FreeRTOS gate and exports the XSA.
+add_files -norecurse {hw/rtl/tricorder_m5_top.v hw/dfx/rm/rm_slot_a.v}
+add_files -fileset constrs_1 {hw/constraints/m2-static-nexys-a7.xdc \
+    hw/dfx/mic.xdc hw/dfx/ultra.xdc}
+set_property top tricorder_m5_top [current_fileset]
 
 launch_runs impl_1 -to_step write_bitstream -jobs 8
 wait_on_runs impl_1
@@ -29,7 +34,7 @@ if {$wns < 0} {
     exit 1
 }
 
-file copy -force build/m2_proj/m2_static.runs/impl_1/static_region_wrapper.bit build/static_region.bit
+file copy -force build/m2_proj/m2_static.runs/impl_1/tricorder_m5_top.bit build/static_region.bit
 write_hw_platform -fixed -include_bit -force build/static_region.xsa
 puts "BUILD: PASS -> build/static_region.bit / .xsa (WNS $wns ns)"
 exit 0

@@ -6,6 +6,43 @@ chronological order (newest first). Each entry has the date and time
 
 ---
 
+## 25 Jul 2026 00:45:00
+
+> Kill the3 sub shells, figure out why they were stuc, and then complete all
+> of M4-M7.
+
+---
+
+## 25 Jul 2026 00:12:00
+
+> Update the notebook as each milestone completes
+
+---
+
+## 25 Jul 2026 00:08:00
+
+> When done write up the whole session in the plan doc
+
+---
+
+## 25 Jul 2026 00:05:00
+
+> Do M4 through M7 as the builds finish
+
+---
+
+## 24 Jul 2026 23:52:00
+
+> Do M7
+
+---
+
+## 24 Jul 2026 23:38:00
+
+> Do M6
+
+---
+
 ## 24 Jul 2026 23:12:00
 
 > Do M5

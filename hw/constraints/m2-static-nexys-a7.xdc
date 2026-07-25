@@ -12,6 +12,14 @@ set_property -dict { PACKAGE_PIN C12 IOSTANDARD LVCMOS33 } [get_ports cpu_resetn
 set_property -dict { PACKAGE_PIN C4  IOSTANDARD LVCMOS33 } [get_ports uart_rxd];     #IO_L7P_T1_AD6P_35 Sch=uart_txd_in
 set_property -dict { PACKAGE_PIN D4  IOSTANDARD LVCMOS33 } [get_ports uart_txd];     #IO_L11N_T1_SRCC_35 Sch=uart_rxd_out
 
+# External sensor I2C bus on Pmod JA (pull-ups on harness)
+set_property -dict { PACKAGE_PIN C17 IOSTANDARD LVCMOS33 } [get_ports iic_ext_scl_io]; #IO_L20N_T3_A19_15 Sch=ja[1]
+set_property -dict { PACKAGE_PIN D18 IOSTANDARD LVCMOS33 } [get_ports iic_ext_sda_io]; #IO_L21N_T3_DQS_A18_15 Sch=ja[2]
+
+# On-board ADT7420 temperature sensor (dedicated nets, on-board pull-ups)
+set_property -dict { PACKAGE_PIN C14 IOSTANDARD LVCMOS33 } [get_ports iic_tmp_scl_io]; #IO_L1N_T0_AD0N_15 Sch=tmp_scl
+set_property -dict { PACKAGE_PIN C15 IOSTANDARD LVCMOS33 } [get_ports iic_tmp_sda_io]; #IO_L12N_T1_MRCC_15 Sch=tmp_sda
+
 set_property -dict { PACKAGE_PIN H17 IOSTANDARD LVCMOS33 } [get_ports {led_tri_o[0]}]; #IO_L18P_T2_A24_15 Sch=led[0]
 set_property -dict { PACKAGE_PIN K15 IOSTANDARD LVCMOS33 } [get_ports {led_tri_o[1]}]; #IO_L24P_T3_RS1_15 Sch=led[1]
 set_property -dict { PACKAGE_PIN J13 IOSTANDARD LVCMOS33 } [get_ports {led_tri_o[2]}]; #IO_L17N_T2_A25_15 Sch=led[2]
