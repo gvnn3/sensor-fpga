@@ -74,7 +74,7 @@ RTOS: FreeRTOS on MicroBlaze — tricorder M4
 ADT7420: 32.00 C
 RTOS: tick 0
 DFX: swapping to RM-PDM
-DFX: RM-PDM live in 16220 ms, sig=9D3A0001 OK
+DFX: RM-PDM live in 1651043 us, sig=9D3A0001 OK
   PDM: pcm=FFFFFFF2 energy=83
 ...
 DFX: RM-SONAR live ... sig=50A40001 OK
@@ -86,7 +86,7 @@ Any `MISMATCH` after a swap, or a stalled rotation, is a failure.
 ## Variants
 
 - **Bare-metal loader gate** (the M5–M7 measurement run — same swaps at
-  390 ms each instead of 16 s, plus the PDM/sonar probes and a final
+  390 ms each instead of 1.65 s, plus the PDM/sonar probes and a final
   `DFX: PASS (all swaps ok)` verdict):
 
   ```bash

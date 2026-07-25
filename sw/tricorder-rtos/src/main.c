@@ -28,6 +28,9 @@
 #define RM_SIG     (*(volatile u32 *)0x44A10004u)
 #define RM_CTRL    (*(volatile u32 *)0x44A10008u)
 #define RM_AUX     (*(volatile u32 *)0x44A1000Cu)
+/* axi_timer counter 1 (counter 0 drives the FreeRTOS tick) */
+#define TMR_CSR1   (*(volatile u32 *)0x41C00010u)
+#define TMR_TCR1   (*(volatile u32 *)0x41C00018u)
 
 /* Partial-bitstream staging protocol (filled by xsdb before boot) */
 struct rm_desc {
@@ -43,7 +46,7 @@ static const struct rm_desc rms[] = {
     { "A",     0x81000000u, (volatile u32 *)0x80FFFFF0u, 0xA5A5A5A5u },
 };
 
-static u32 bswap32(u32 w)
+__attribute__((always_inline)) static inline u32 bswap32(u32 w)
 {
     return (w >> 24) | ((w >> 8) & 0xFF00u) | ((w << 8) & 0xFF0000u) | (w << 24);
 }
@@ -113,7 +116,7 @@ static void sensors_task(void *arg)
     }
 }
 
-static void dfx_task(void *arg)
+__attribute__((optimize("O2"))) static void dfx_task(void *arg)
 {
     unsigned idx = 0;
     u32 go;
@@ -130,7 +133,14 @@ static void dfx_task(void *arg)
         }
 
         xil_printf("DFX: swapping to RM-%s\r\n", rm->name);
-        TickType_t t0 = xTaskGetTickCount();
+        /* Critical section: tick interrupts add ~40x to the GPIO pacing
+         * loop. Ticks freeze during the stream, so time it with the
+         * timer's second counter (100 MHz, counter 0 owns the tick). */
+        TMR_CSR1 = 0x0;
+        TMR_CSR1 = 0x20;   /* load 0 */
+        TMR_CSR1 = 0x80;   /* run up */
+        u32 t0 = TMR_TCR1;
+        taskENTER_CRITICAL();
         DECOUPLE = 1;
         go = ICAPW_GO & 1u;
         const u32 *w = (const u32 *)rm->addr;
@@ -140,11 +150,12 @@ static void dfx_task(void *arg)
             ICAPW_GO = go;
         }
         DECOUPLE = 0;
-        TickType_t t1 = xTaskGetTickCount();
+        taskEXIT_CRITICAL();
+        u32 t1 = TMR_TCR1;
 
         u32 sig = RM_SIG;
-        xil_printf("DFX: RM-%s live in %u ms, sig=%08x %s\r\n", rm->name,
-                   (unsigned)((t1 - t0) * portTICK_PERIOD_MS), sig,
+        xil_printf("DFX: RM-%s live in %u us, sig=%08x %s\r\n", rm->name,
+                   (unsigned)((t1 - t0) / 100u), sig,
                    sig == rm->sig ? "OK" : "MISMATCH");
 
         if (sig == 0x9D3A0001u) {

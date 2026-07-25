@@ -6,6 +6,12 @@ chronological order (newest first). Each entry has the date and time
 
 ---
 
+## 25 Jul 2026 16:30:00
+
+> Try the swap time optimization with taskENTER_CRITICAL
+
+---
+
 ## 25 Jul 2026 15:21:12
 
 > I will push, update the notebook with the demo entry first

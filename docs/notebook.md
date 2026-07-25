@@ -17,6 +17,7 @@ or removed at runtime from the FPGA dynamic (partial reconfiguration) region.
 
 # Table of Contents
 
+22. [EXPERIMENT 25 Jul 2026 16:57:03 RTOS Swap-Time Optimization: 15.9 s → 1.65 s](#25-jul-2026-165703) :complete:
 21. [EXPERIMENT 25 Jul 2026 15:21:12 Demo Runbook Published (docs/demo.md)](#25-jul-2026-152112) :complete:
 20. [EXPERIMENT 25 Jul 2026 09:55:00 Integrated Demo: FreeRTOS Rotates All Four DFX Personalities + CI Targets](#25-jul-2026-095500) :complete:
 19. [EXPERIMENT 25 Jul 2026 09:30:00 M7: Sonar RM + Full Runtime Swap Demo (Ranging Pending Harness)](#25-jul-2026-093000) :complete:
@@ -38,6 +39,68 @@ or removed at runtime from the FPGA dynamic (partial reconfiguration) region.
 3. [EXPERIMENT  4 Jul 2026 07:34:03 OHWR Cores for the Dynamic Region of This Host (Alveo U250)](#4-jul-2026-073403) :complete:
 2. [EXPERIMENT  4 Jul 2026 07:26:08 Vitis Libraries Suitability for the FPGA Dynamic Region](#4-jul-2026-072608) :complete:
 1. [EXPERIMENT  4 Jul 2026 07:20:01 Repository and Notebook Initialization](#4-jul-2026-072001) :complete:
+
+---
+
+# EXPERIMENT 25 Jul 2026 16:57:03 RTOS Swap-Time Optimization: 15.9 s → 1.65 s :complete:
+
+## 1. Hypothesis
+
+Entry 20 measured 16.2 s per DFX swap under FreeRTOS vs 390 ms
+bare-metal and blamed tick preemption. Does `taskENTER_CRITICAL` around
+the ICAP stream close the gap?
+
+## 2. How
+
+- **Equipment:** Nexys A7-100T, same bitstream/partials as entries 17-21
+  (software-only change).
+- **Software:** `dfx_task` wrapped the word loop in
+  `taskENTER_CRITICAL`/`EXIT`; timing moved from `xTaskGetTickCount`
+  (frozen when interrupts are off) to the axi_timer's **second counter**
+  (counter 0 belongs to the FreeRTOS tick).
+- **Benchmarks:** demo rotation, per-swap microsecond timer readings.
+
+### Key commands
+
+```bash
+~/Vivado/2025.2/Vitis/bin/vitis -s sw/scripts/build_rtos.py
+~/Vivado/2025.2/Vivado/bin/xsdb hw/scripts/run_rtos_dfx.xsdb
+```
+
+## 3. Observations
+
+- Critical section alone: **15,908,081 µs — no improvement**, but
+  byte-identical times across swaps proved the loop ran uninterrupted;
+  the tick-preemption hypothesis was WRONG.
+- Real culprit: the Vitis app template compiles at **-O0 -g3**; the
+  bare-metal loader was -O2. At -O0 the word loop is ~60 µs/word of
+  stack traffic.
+- `__attribute__((optimize("O2")))` on `dfx_task` +
+  `always_inline` bswap: **1,651,043 µs = 1.65 s/swap — 9.6x faster.**
+  All signatures still OK, sensors/heartbeat resume cleanly after each
+  swap.
+- Residual 4.2x vs bare-metal (6.2 vs 1.46 µs/word): cold-dcache reads
+  of the 1 MiB partial from DDR plus instruction fetch sharing the same
+  memory, vs the bare-metal loader's LMB-resident code.
+
+## 4. Data analysis
+
+Classic mis-attributed bottleneck: the deterministic (identical-to-the-
+microsecond) timings under the critical section were the decisive
+evidence that preemption contributed nothing — compiler optimization
+level dominated. The critical section still earns its keep (swaps are
+now atomic w.r.t. the scheduler; the tick loses ~1.65 s of wall time per
+swap, acceptable at demo cadence). Next real step change needs hardware:
+the AXIS-FIFO front on the ICAPE2 writer (~11 ms theoretical), which
+also removes the critical-section tick loss entirely.
+
+## 5. Ideas for future experiments
+
+- AXIS-FIFO/DMA-fed ICAPE2 writer: target <20 ms, no interrupt blackout.
+- Set -O2 project-wide in build_rtos.py app config rather than
+  per-function attributes.
+- Account tick loss: resync FreeRTOS time after swaps if wall-clock
+  accuracy ever matters.
 
 ---
 
