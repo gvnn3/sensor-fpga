@@ -6,6 +6,12 @@ chronological order (newest first). Each entry has the date and time
 
 ---
 
+## 26 Jul 2026 00:30:00
+
+> Try the QSPI slot table with the compressed partials
+
+---
+
 ## 26 Jul 2026 00:05:00
 
 > Try the bitstream compression on the partials

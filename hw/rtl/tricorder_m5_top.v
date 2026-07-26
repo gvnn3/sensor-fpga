@@ -22,6 +22,10 @@ module tricorder_m5_top (
     inout  wire        iic_ext_sda_io,
     inout  wire        iic_tmp_scl_io,
     inout  wire        iic_tmp_sda_io,
+    inout  wire        qspi_dq0,
+    inout  wire        qspi_dq1,
+    inout  wire        qspi_cs,
+    // qspi sck has no user pin: it drives the dedicated CCLK via STARTUPE2
     output wire [3:0]  led_tri_o,
     // DDR2 (wired straight through to the MIG)
     output wire [12:0] ddr2_addr,
@@ -43,6 +47,10 @@ module tricorder_m5_top (
     wire        rm_clk;
     wire [31:0] icapw_data;
     wire [0:0]  icapw_go;
+    wire        qspi_sck;
+    wire qspi_io0_i, qspi_io0_o, qspi_io0_t;
+    wire qspi_io1_i, qspi_io1_o, qspi_io1_t;
+    wire qspi_ss_i,  qspi_ss_o,  qspi_ss_t;
     wire [31:0] icap_axis_tdata;
     wire        icap_axis_tvalid;
     wire [3:0]  icap_axis_tkeep;
@@ -64,6 +72,17 @@ module tricorder_m5_top (
         .iic_ext_sda_io (iic_ext_sda_io),
         .iic_tmp_scl_io (iic_tmp_scl_io),
         .iic_tmp_sda_io (iic_tmp_sda_io),
+        .qspi_io0_i   (qspi_io0_i),
+        .qspi_io0_o   (qspi_io0_o),
+        .qspi_io0_t   (qspi_io0_t),
+        .qspi_io1_i   (qspi_io1_i),
+        .qspi_io1_o   (qspi_io1_o),
+        .qspi_io1_t   (qspi_io1_t),
+        .qspi_ss_i    (qspi_ss_i),
+        .qspi_ss_o    (qspi_ss_o),
+        .qspi_ss_t    (qspi_ss_t),
+        .qspi_sck_o   (qspi_sck),
+        .qspi_sck_i   (1'b0),
         .led_tri_o    (led_tri_o),
         .ddr2_addr    (ddr2_addr),
         .ddr2_ba      (ddr2_ba),
@@ -150,6 +169,26 @@ module tricorder_m5_top (
 
     wire        icap_csn_mux = axis_csn & icapw_csn;
     wire [31:0] icap_i_mux   = icapw_csn ? axis_lat : icapw_i;
+
+    IOBUF u_qspi_dq0 (.IO(qspi_dq0), .I(qspi_io0_o), .O(qspi_io0_i), .T(qspi_io0_t));
+    IOBUF u_qspi_dq1 (.IO(qspi_dq1), .I(qspi_io1_o), .O(qspi_io1_i), .T(qspi_io1_t));
+    IOBUF u_qspi_cs  (.IO(qspi_cs),  .I(qspi_ss_o),  .O(qspi_ss_i),  .T(qspi_ss_t));
+
+    STARTUPE2 #(.PROG_USR("FALSE"), .SIM_CCLK_FREQ(0.0)) u_startup (
+        .CFGCLK    (),
+        .CFGMCLK   (),
+        .EOS       (),
+        .PREQ      (),
+        .CLK       (1'b0),
+        .GSR       (1'b0),
+        .GTS       (1'b0),
+        .KEYCLEARB (1'b1),
+        .PACK      (1'b0),
+        .USRCCLKO  (qspi_sck),
+        .USRCCLKTS (1'b0),
+        .USRDONEO  (1'b1),
+        .USRDONETS (1'b1)
+    );
 
     ICAPE2 #(.ICAP_WIDTH("X32")) u_icap_writer (
         .CLK   (rm_clk),

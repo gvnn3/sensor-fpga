@@ -24,3 +24,8 @@ set_property -dict { PACKAGE_PIN H17 IOSTANDARD LVCMOS33 } [get_ports {led_tri_o
 set_property -dict { PACKAGE_PIN K15 IOSTANDARD LVCMOS33 } [get_ports {led_tri_o[1]}]; #IO_L24P_T3_RS1_15 Sch=led[1]
 set_property -dict { PACKAGE_PIN J13 IOSTANDARD LVCMOS33 } [get_ports {led_tri_o[2]}]; #IO_L17N_T2_A25_15 Sch=led[2]
 set_property -dict { PACKAGE_PIN N14 IOSTANDARD LVCMOS33 } [get_ports {led_tri_o[3]}]; #IO_L8P_T1_D11_14 Sch=led[3]
+
+# QSPI config flash (S25FL128S); SCK is the dedicated CCLK pin via STARTUPE2
+set_property -dict { PACKAGE_PIN K17 IOSTANDARD LVCMOS33 } [get_ports qspi_dq0]; #IO_L1P_T0_D00_MOSI_14 Sch=qspi_dq[0]
+set_property -dict { PACKAGE_PIN K18 IOSTANDARD LVCMOS33 } [get_ports qspi_dq1]; #IO_L1N_T0_D01_DIN_14 Sch=qspi_dq[1]
+set_property -dict { PACKAGE_PIN L13 IOSTANDARD LVCMOS33 } [get_ports qspi_cs];  #IO_L6P_T0_FCS_B_14 Sch=qspi_csn

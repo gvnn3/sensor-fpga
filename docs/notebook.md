@@ -17,6 +17,7 @@ or removed at runtime from the FPGA dynamic (partial reconfiguration) region.
 
 # Table of Contents
 
+25. [EXPERIMENT 26 Jul 2026 01:55:20 QSPI Slot Table: Personalities Load from Flash](#26-jul-2026-015520) :complete:
 24. [EXPERIMENT 26 Jul 2026 00:16:23 Compressed Partials: Sub-Millisecond Swaps (0.78–1.06 ms)](#26-jul-2026-001623) :complete:
 23. [EXPERIMENT 25 Jul 2026 18:05:04 DMA-Fed ICAPE2: Swaps at Wire Speed — 2.7 ms](#25-jul-2026-180504) :complete:
 22. [EXPERIMENT 25 Jul 2026 16:57:03 RTOS Swap-Time Optimization: 15.9 s → 1.65 s](#25-jul-2026-165703) :complete:
@@ -41,6 +42,84 @@ or removed at runtime from the FPGA dynamic (partial reconfiguration) region.
 3. [EXPERIMENT  4 Jul 2026 07:34:03 OHWR Cores for the Dynamic Region of This Host (Alveo U250)](#4-jul-2026-073403) :complete:
 2. [EXPERIMENT  4 Jul 2026 07:26:08 Vitis Libraries Suitability for the FPGA Dynamic Region](#4-jul-2026-072608) :complete:
 1. [EXPERIMENT  4 Jul 2026 07:20:01 Repository and Notebook Initialization](#4-jul-2026-072001) :complete:
+
+---
+
+# EXPERIMENT 26 Jul 2026 01:55:20 QSPI Slot Table: Personalities Load from Flash :complete:
+
+## 1. Hypothesis
+
+Can the compressed partials live in the on-board 16 MiB QSPI flash
+(S25FL128S) in a slot layout, with the FreeRTOS system pulling
+personalities from flash at runtime — no JTAG staging of partials?
+
+## 2. How
+
+- **Equipment:** Nexys A7-100T; QSPI DQ0/DQ1/CSN on K17/K18/L13, SCK on
+  the dedicated CCLK pin (only reachable through STARTUPE2).
+- **Hardware:** axi_quad_spi in **command mode** (single-line, FIFO 256,
+  no internal STARTUP), per-signal ports out of the BD; the top wrapper
+  owns the three IOBUFs and a STARTUPE2 whose USRCCLKO carries sck. XIP
+  mode was tried first and abandoned: reads "succeed" with zero
+  observability while the bus is dead — command mode buys a JEDEC-ID
+  liveness probe.
+- **Flash layout:** `hw/scripts/build_flash.tcl` → MCS with full_a.bit @0
+  and 1 MiB slots (a@0x900000 b@0xA00000 pdm@0xB00000 sonar@0xC00000),
+  plus the generated slot manifest `sw/tricorder-rtos/src/slots.h` — one
+  script is the single source of truth for both. Programmed with
+  `hw/scripts/program_flash.tcl` (erase+program+verify over JTAG).
+- **Software:** boot JEDEC probe; per swap: SPI fast-read (0x0B) of the
+  slot into a DDR2 bounce buffer, then the entry-23 DMA→ICAPE2 path;
+  signature check with automatic fallback to DDR-staged partials.
+
+### Key commands
+
+```bash
+make -C hw static && make -C hw dfx
+vivado -mode batch -source hw/scripts/build_flash.tcl
+vivado -mode batch -source hw/scripts/program_flash.tcl
+make -C hw rtos && xsdb hw/scripts/run_rtos_dfx.xsdb
+```
+
+## 3. Observations
+
+- **`QSPI: JEDEC 01 20 18`** — S25FL128S answers; then **all four
+  personalities load from FLASH**: PDM (live audio), SONAR (bursts),
+  B, A — signatures verified every swap, zero fallbacks.
+- Timing per flash swap: ICAP stream ~1 ms (unchanged, wire speed);
+  **flash read 6.4–7.6 s per slot** (~17 µs/byte: CPU-polled single-line
+  SPI with per-128-byte FIFO churn at SCK = ext_spi_clk/16).
+- Debug trail worth keeping: (1) XIP-mode reads returned idle-bus 0xFF
+  forever with XIPSR clean — unobservable dead end; (2) JTAG-poked JEDEC
+  through the same core returned `FF 01 20 18`, proving bus + STARTUPE2
+  CCLK path and isolating the C driver; (3) driver bug #1: soft-reset
+  needs settle time (first-xfer-after-reset garbage); (4) driver bug #2:
+  the slot read used the post-increment rotation index — the "PDM" swap
+  cleanly loaded the SONAR slot, and the signature mismatch caught it
+  (defense-in-depth via per-RM signatures paying off exactly as
+  designed).
+
+## 4. Data analysis
+
+The tricorder no longer needs a host to change personalities: partials
+live in flash, the OS reads a slot, streams it through the DMA→ICAPE2
+path, and verifies the result — the fallback chain (flash → DDR staging)
+never triggered in the final run. The 6.5 s flash read dominates and is
+pure driver ceiling, not architecture: single-line polled SPI at /16
+clocking. Known ladder: SCK ratio /2 (~8x), quad I/O (4x more),
+interrupt/DMA-driven SPI — sub-second flash swaps are reachable without
+new silicon. Full self-boot (golden image from flash + ELF in flash)
+is the remaining step to a standalone instrument; the golden image is
+already in slot 0.
+
+## 5. Ideas for future experiments
+
+- SCK ratio /2 + quad fast-read (set flash QE) → target <1 s flash swap.
+- Boot from QSPI: BITSTREAM.CONFIG.SPI_BUSWIDTH + srec bootloader in
+  LMB reading the ELF from a flash slot — no JTAG at all.
+- CRC32 per slot in the manifest, checked before ICAP streaming.
+- Wear note: slots rewritten per DFX build; fine for development
+  cadence, add erase counters if this ever ships.
 
 ---
 

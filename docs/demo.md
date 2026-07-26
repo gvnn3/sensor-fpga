@@ -8,7 +8,7 @@ keep running.
 
 Verified on: Digilent Nexys A7-100T, Vivado/Vitis 2025.2
 (`~/Vivado/2025.2`), Ubuntu, branch `gnn-a7-tricorder`
-(notebook entries 11–24 record the underlying experiments).
+(notebook entries 11–25 record the underlying experiments).
 
 ## What you will see
 
@@ -26,6 +26,7 @@ Interleaved throughout, uninterrupted by the swaps:
 
 - `RTOS: tick N` — heartbeat task (LEDs 0–3 count in binary)
 - `ADT7420: 3x.xx C` — on-board temperature sensor over I2C, once a second
+- `QSPI: JEDEC 01 20 18` — flash identified at boot
 - `I2C-EXT: scan: -> 0 device(s)` — external JA sensor bus walk
   (0 devices until the sensor harness is wired; with the harness expect
   0x76/77 BME688, 0x62 SCD-41, 0x10 VEML7700, 0x39 AS7341, 0x57 MAX30105)
@@ -35,8 +36,10 @@ Interleaved throughout, uninterrupted by the swaps:
 1. Nexys A7-100T connected by USB (one cable: JTAG + UART). Check:
    `lsusb | grep 0403:6010` — the FT2232 must be present. No udev
    installer or sudo is needed (the `plugdev` group covers it).
-2. Power switch on; board can be otherwise untouched — the demo loads
-   everything volatile over JTAG, nothing is flashed.
+2. Power switch on. Partials live in the QSPI flash (slots written by
+   `hw/scripts/program_flash.tcl`); the demo pulls personalities from
+   flash and falls back to JTAG-staged DDR copies automatically if the
+   flash slots are missing or stale.
 3. Build artifacts present (all committed scripts, rebuild takes
    ~45 min total if `build/` is empty):
 
@@ -74,7 +77,8 @@ RTOS: FreeRTOS on MicroBlaze — tricorder M4
 ADT7420: 32.00 C
 RTOS: tick 0
 DFX: swapping to RM-PDM
-DFX: RM-PDM live in 1067 us, sig=9D3A0001 OK
+DFX: swapping to RM-PDM from FLASH
+DFX: RM-PDM live in 1148 us (flash read 7583569 us), sig=9D3A0001 OK
   PDM: pcm=FFFFFFF2 energy=83
 ...
 DFX: RM-SONAR live ... sig=50A40001 OK
