@@ -49,6 +49,9 @@ if {[get_property SLACK [get_timing_paths -max_paths 1 -nworst 1 -setup]] < 0} {
     exit 1
 }
 write_checkpoint -force $out/config_a_routed.dcp
+# Compressed bitstreams (MFWR frames): smaller partials load
+# proportionally faster through the DMA->ICAPE2 path
+set_property BITSTREAM.GENERAL.COMPRESS TRUE [current_design]
 write_bitstream -force -no_partial_bitfile $out/full_a.bit
 write_bitstream -force -bin_file -cell u_rm $out/rm_a_partial.bit
 
@@ -68,6 +71,7 @@ foreach rm {b pdm sonar} {
         exit 1
     }
     write_checkpoint -force $out/config_${rm}_routed.dcp
+    set_property BITSTREAM.GENERAL.COMPRESS TRUE [current_design]
     write_bitstream -force -bin_file -cell u_rm $out/rm_${rm}_partial.bit
     if {$rm ne "sonar"} { update_design -cell u_rm -black_box }
 }

@@ -17,6 +17,7 @@ or removed at runtime from the FPGA dynamic (partial reconfiguration) region.
 
 # Table of Contents
 
+24. [EXPERIMENT 26 Jul 2026 00:16:23 Compressed Partials: Sub-Millisecond Swaps (0.78–1.06 ms)](#26-jul-2026-001623) :complete:
 23. [EXPERIMENT 25 Jul 2026 18:05:04 DMA-Fed ICAPE2: Swaps at Wire Speed — 2.7 ms](#25-jul-2026-180504) :complete:
 22. [EXPERIMENT 25 Jul 2026 16:57:03 RTOS Swap-Time Optimization: 15.9 s → 1.65 s](#25-jul-2026-165703) :complete:
 21. [EXPERIMENT 25 Jul 2026 15:21:12 Demo Runbook Published (docs/demo.md)](#25-jul-2026-152112) :complete:
@@ -40,6 +41,74 @@ or removed at runtime from the FPGA dynamic (partial reconfiguration) region.
 3. [EXPERIMENT  4 Jul 2026 07:34:03 OHWR Cores for the Dynamic Region of This Host (Alveo U250)](#4-jul-2026-073403) :complete:
 2. [EXPERIMENT  4 Jul 2026 07:26:08 Vitis Libraries Suitability for the FPGA Dynamic Region](#4-jul-2026-072608) :complete:
 1. [EXPERIMENT  4 Jul 2026 07:20:01 Repository and Notebook Initialization](#4-jul-2026-072001) :complete:
+
+---
+
+# EXPERIMENT 26 Jul 2026 00:16:23 Compressed Partials: Sub-Millisecond Swaps (0.78–1.06 ms) :complete:
+
+## 1. Hypothesis
+
+Entry 23 hit the configuration port's wire speed (2.7 ms for a 1.07 MB
+partial), leaving partial size as the only lever. Does
+`BITSTREAM.GENERAL.COMPRESS` shrink the partials — and do compressed
+(MFWR multi-frame-write) partials load correctly through the
+DMA→ICAPE2 path?
+
+## 2. How
+
+- **Equipment:** Nexys A7-100T; hardware unchanged from entry 23.
+- **Software:** `BITSTREAM.GENERAL.COMPRESS TRUE` set before every
+  `write_bitstream` in `hw/dfx/build_dfx.tcl` (full config A + each
+  partial). Loaders untouched — they already take length from file size.
+- **Benchmarks:** full bare-metal gate sequence + RTOS rotation.
+
+### Key commands
+
+```bash
+~/Vivado/2025.2/Vivado/bin/vivado -mode batch -source hw/dfx/build_dfx.tcl
+~/Vivado/2025.2/Vivado/bin/xsdb hw/scripts/run_dfx_test.xsdb 1
+~/Vivado/2025.2/Vivado/bin/xsdb hw/scripts/run_rtos_dfx.xsdb
+```
+
+## 3. Observations
+
+| Artifact | Uncompressed | Compressed | Ratio |
+|---|---|---|---|
+| full_a.bit | 3,825,917 B | 1,910,779 B | 2.0x |
+| rm_a partial | 1,071,052 B | 316,832 B | 3.4x |
+| rm_b partial | 1,071,052 B | 311,976 B | 3.4x |
+| rm_pdm partial | 1,071,052 B | 421,740 B | 2.5x |
+| rm_sonar partial | 1,071,052 B | 356,780 B | 3.0x |
+
+- pr_verify PASS unchanged; per-RM sizes now differ (compression tracks
+  content: the near-empty hello RMs compress hardest).
+- **Bare-metal swaps: 781/793/1055/893 µs** — still exactly
+  words/100 MHz (311,976/4 = 77,994 words → 780 µs), so MFWR frames
+  stream at full rate through the ICAPE2 sink.
+- **FreeRTOS: PDM 1067 µs, sonar 903 µs.** All signatures OK, PDM live
+  audio and sonar bursts unchanged, `DFX: PASS (all swaps ok)`.
+- Side benefit: JTAG staging drops from ~4.3 MB to ~1.4 MB of dow
+  traffic; full-image programming also halves.
+
+## 4. Data analysis
+
+Compression is free performance on every axis measured: 2.5-3.4x
+smaller partials, proportionally faster swaps (still wire-limited, now
+sub-millisecond), no correctness impact through either load path.
+**Swap-time history closes at 16.2 s → 1.65 s → 2.7 ms → ~0.8-1.1 ms
+(≈20,000x)** — reconfiguration now costs less than one FreeRTOS tick,
+i.e. a personality change is cheaper than a 1 ms scheduler quantum. The
+remaining QSPI-sourced swap estimate improves to ~13-17 ms flash-read
+dominated (320-420 KB at 25 MB/s), well within interactive feel.
+
+## 5. Ideas for future experiments
+
+- QSPI slot table with compressed partials: measure flash→ICAP
+  end-to-end (~15 ms expected).
+- Per-RM size now varies — the slot table should store lengths, not
+  assume uniform slots.
+- Interrupt-driven DMA completion; at 0.8 ms it hardly matters, but it
+  removes the last busy-wait.
 
 ---
 

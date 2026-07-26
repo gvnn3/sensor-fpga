@@ -6,6 +6,12 @@ chronological order (newest first). Each entry has the date and time
 
 ---
 
+## 26 Jul 2026 00:05:00
+
+> Try the bitstream compression on the partials
+
+---
+
 ## 25 Jul 2026 17:00:00
 
 > Try the AXIS-FIFO writer to get swaps under 20 ms

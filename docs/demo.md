@@ -8,7 +8,7 @@ keep running.
 
 Verified on: Digilent Nexys A7-100T, Vivado/Vitis 2025.2
 (`~/Vivado/2025.2`), Ubuntu, branch `gnn-a7-tricorder`
-(notebook entries 11–23 record the underlying experiments).
+(notebook entries 11–24 record the underlying experiments).
 
 ## What you will see
 
@@ -61,7 +61,7 @@ Terminal 2 — program, stage, boot (from the repo root):
 ```
 
 The script does four things: programs `build/dfx/full_a.bit` (static
-region + personality A), copies the four ~1 MiB partial bitstreams into
+region + personality A), copies the four compressed (~310-420 KiB) partial bitstreams into
 DDR2 at 0x81000000–0x84000000 with their lengths at 0x80FFFFE8–F4
 (JTAG staging takes a couple of minutes — be patient), downloads the
 FreeRTOS ELF, and starts the CPU. It then disconnects; the board runs
@@ -74,7 +74,7 @@ RTOS: FreeRTOS on MicroBlaze — tricorder M4
 ADT7420: 32.00 C
 RTOS: tick 0
 DFX: swapping to RM-PDM
-DFX: RM-PDM live in 2688 us, sig=9D3A0001 OK
+DFX: RM-PDM live in 1067 us, sig=9D3A0001 OK
   PDM: pcm=FFFFFFF2 energy=83
 ...
 DFX: RM-SONAR live ... sig=50A40001 OK
@@ -86,7 +86,7 @@ Any `MISMATCH` after a swap, or a stalled rotation, is a failure.
 ## Variants
 
 - **Bare-metal loader gate** (the M5–M7 measurement run — same swaps at
-  2.7 ms each (DMA-fed ICAPE2, wire speed), plus the PDM/sonar probes and a final
+  ~0.8-1.1 ms each (DMA-fed ICAPE2 + compressed partials, wire speed), plus the PDM/sonar probes and a final
   `DFX: PASS (all swaps ok)` verdict):
 
   ```bash
@@ -113,7 +113,7 @@ partial in DDR2**; the DMA streams it into a raw ICAPE2 primitive at one
 config word per 100 MHz cycle (full 32-bit bit-reversal done in wiring —
 UG470 byte bit-reverse composed with the byteswap), then the task
 re-couples and verifies the new personality's signature register.
-2.7 ms per swap — the configuration port's wire speed. A GPIO-paced
+Sub-millisecond swaps — the configuration port's wire speed on compressed partials. A GPIO-paced
 writer on the same ICAPE2 remains as fallback. The stock AXI HWICAP core
 is present but non-functional in this configuration (write FSM wedges on
 its first transfer — notebook entry 17).
