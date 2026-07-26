@@ -227,7 +227,8 @@ externalize axi_dma_0/M_AXIS_MM2S icap_axis
 set qspi [create_bd_cell -type ip -vlnv [ipv axi_quad_spi] axi_quad_spi_0]
 set_property -dict [list \
     CONFIG.C_XIP_MODE {0} \
-    CONFIG.C_SPI_MODE {0} \
+    CONFIG.C_SPI_MODE {2} \
+    CONFIG.C_SCK_RATIO {2} \
     CONFIG.C_USE_STARTUP {0} \
     CONFIG.C_SPI_MEMORY {3} \
     CONFIG.C_FIFO_DEPTH {256} \
@@ -242,6 +243,7 @@ apply_bd_automation -rule xilinx.com:bd_rule:axi4 -config { \
 # IOBUF for sck, but sck must drive the dedicated CCLK via STARTUPE2 in the
 # top wrapper, which also owns the io0/io1/ss IOBUFs).
 foreach {pin dir} {io0_i I io0_o O io0_t O io1_i I io1_o O io1_t O \
+                   io2_i I io2_o O io2_t O io3_i I io3_o O io3_t O \
                    ss_i I ss_o O ss_t O sck_i I sck_o O} {
     create_bd_port -dir $dir qspi_${pin}
     connect_bd_net [get_bd_ports qspi_${pin}] [get_bd_pins axi_quad_spi_0/${pin}]

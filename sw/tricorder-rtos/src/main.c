@@ -103,7 +103,9 @@ __attribute__((optimize("O2"))) static void spi_xfer(u8 *buf, u32 n)
         while (!(SPI_SR & SPISR_TXE))        /* all bits shifted */
             ;
         SPI_CR = SPICR_BASE | SPICR_INH;
-        while (!(SPI_SR & SPISR_RXE) && done < n)
+        /* RX now holds exactly `burst` bytes: drain without per-byte
+         * status polls (halves the AXI traffic per byte) */
+        for (u32 i = 0; i < burst; i++)
             buf[done++] = (u8)SPI_DRR;
     }
     SPI_SSR = ~0u;                           /* deassert */
@@ -111,20 +113,27 @@ __attribute__((optimize("O2"))) static void spi_xfer(u8 *buf, u32 n)
 
 __attribute__((optimize("O2"))) static void spi_flash_read(u32 off, u8 *dst, u32 len)
 {
-    static u8 chunk[5 + 200];
+    static u8 chunk[8 + 200];
 
     while (len) {
         u32 n = len > 200 ? 200 : len;
-        chunk[0] = 0x0B; /* fast read */
+        /* 0x6B quad-output read. Overhead is 8 RX bytes: cmd + 3 addr
+         * (single-lane, 1:1) + 8 dummy cycles at quad = 4 bytes. TX must
+         * supply matching clock entries. (Measured on hardware: data
+         * arrived shifted +3 vs the naive 5-byte framing.) */
+        chunk[0] = 0x6B;
         chunk[1] = (u8)(off >> 16);
         chunk[2] = (u8)(off >> 8);
         chunk[3] = (u8)off;
-        chunk[4] = 0x00; /* dummy */
+        chunk[4] = 0x00;
+        chunk[5] = 0x00;
+        chunk[6] = 0x00;
+        chunk[7] = 0x00;
         for (u32 i = 0; i < n; i++)
-            chunk[5 + i] = 0xFF;
-        spi_xfer(chunk, 5 + n);
+            chunk[8 + i] = 0xFF;
+        spi_xfer(chunk, 8 + n);
         for (u32 i = 0; i < n; i++)
-            dst[i] = chunk[5 + i];
+            dst[i] = chunk[8 + i];
         dst += n;
         off += n;
         len -= n;
@@ -233,6 +242,10 @@ __attribute__((optimize("O2"))) static void dfx_task(void *arg)
             spi_flash_read(flash_slots[slot].addr - QSPI_XIP_BASE,
                            (u8 *)FLASH_BOUNCE, len);
             t_spi = TMR_TCR1 - s0;
+            u8 *b = (u8 *)FLASH_BOUNCE;
+            xil_printf("  bounce: %02x%02x%02x%02x %02x%02x%02x%02x @20: %02x%02x%02x%02x %02x%02x%02x%02x\r\n",
+                       b[0],b[1],b[2],b[3],b[4],b[5],b[6],b[7],
+                       b[32],b[33],b[34],b[35],b[36],b[37],b[38],b[39]);
         }
         /* Critical section: tick interrupts add ~40x to the GPIO pacing
          * loop. Ticks freeze during the stream, so time it with the
@@ -297,6 +310,27 @@ int main(void)
         j[0] = 0x9F; j[1] = j[2] = j[3] = 0xFF;
         spi_xfer(j, 4);
         xil_printf("QSPI: JEDEC %02x %02x %02x\r\n", j[1], j[2], j[3]);
+
+        /* Quad reads need the S25FL128S QE bit (CR1 bit 1, non-volatile).
+         * Set it once; skip if already set. */
+        u8 c[2] = { 0x35, 0xFF };  /* RDCR */
+        spi_xfer(c, 2);
+        if (!(c[1] & 0x02)) {
+            u8 wen[1] = { 0x06 };  /* WREN */
+            u8 wrr[3] = { 0x01, 0x00, 0x02 }; /* WRR: SR1=0, CR1=QE */
+            u8 rd[2];
+            spi_xfer(wen, 1);
+            spi_xfer(wrr, 3);
+            do {                   /* poll WIP */
+                rd[0] = 0x05; rd[1] = 0xFF;
+                spi_xfer(rd, 2);
+            } while (rd[1] & 0x01);
+            c[0] = 0x35; c[1] = 0xFF;
+            spi_xfer(c, 2);
+            xil_printf("QSPI: QE set, CR1=%02x\r\n", c[1]);
+        } else {
+            xil_printf("QSPI: QE already set (CR1=%02x)\r\n", c[1]);
+        }
     }
 
     xTaskCreate(heartbeat_task, "beat", 512, NULL, tskIDLE_PRIORITY + 1, NULL);

@@ -4,11 +4,11 @@
 #define SLOTS_H
 #define QSPI_XIP_BASE 0x60000000u
 #define SLOT_A_OFF  0x00900000u
-#define SLOT_A_LEN  386404u
+#define SLOT_A_LEN  347036u
 #define SLOT_B_OFF  0x00A00000u
-#define SLOT_B_LEN  386996u
+#define SLOT_B_LEN  340548u
 #define SLOT_PDM_OFF  0x00B00000u
-#define SLOT_PDM_LEN  454980u
+#define SLOT_PDM_LEN  422916u
 #define SLOT_SONAR_OFF  0x00C00000u
-#define SLOT_SONAR_LEN  435492u
+#define SLOT_SONAR_LEN  394836u
 #endif

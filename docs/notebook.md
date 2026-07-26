@@ -17,6 +17,7 @@ or removed at runtime from the FPGA dynamic (partial reconfiguration) region.
 
 # Table of Contents
 
+26. [EXPERIMENT 26 Jul 2026 10:46:52 Quad SPI: Correct at 4 Lanes x 50 MHz — and Proof the Reader Is CPU-Bound](#26-jul-2026-104652) :complete:
 25. [EXPERIMENT 26 Jul 2026 01:55:20 QSPI Slot Table: Personalities Load from Flash](#26-jul-2026-015520) :complete:
 24. [EXPERIMENT 26 Jul 2026 00:16:23 Compressed Partials: Sub-Millisecond Swaps (0.78–1.06 ms)](#26-jul-2026-001623) :complete:
 23. [EXPERIMENT 25 Jul 2026 18:05:04 DMA-Fed ICAPE2: Swaps at Wire Speed — 2.7 ms](#25-jul-2026-180504) :complete:
@@ -42,6 +43,71 @@ or removed at runtime from the FPGA dynamic (partial reconfiguration) region.
 3. [EXPERIMENT  4 Jul 2026 07:34:03 OHWR Cores for the Dynamic Region of This Host (Alveo U250)](#4-jul-2026-073403) :complete:
 2. [EXPERIMENT  4 Jul 2026 07:26:08 Vitis Libraries Suitability for the FPGA Dynamic Region](#4-jul-2026-072608) :complete:
 1. [EXPERIMENT  4 Jul 2026 07:20:01 Repository and Notebook Initialization](#4-jul-2026-072001) :complete:
+
+---
+
+# EXPERIMENT 26 Jul 2026 10:46:52 Quad SPI: Correct at 4 Lanes x 50 MHz — and Proof the Reader Is CPU-Bound :complete:
+
+## 1. Hypothesis
+
+Entry 25 measured 6.4–7.6 s flash reads on single-line SPI at
+6.25 MHz. Does quad mode (C_SPI_MODE=2, C_SCK_RATIO=2 → 50 MHz, 4 data
+lanes ≈ 25 MB/s wire) bring flash-sourced swaps toward the ~15 ms class?
+
+## 2. How
+
+- **Hardware:** quad axi_quad_spi; dq2/dq3 (L14/M14) added through the
+  BD/top/XDC; SCK ratio 2.
+- **Flash:** S25FL128S **QE bit** (CR1 bit 1, non-volatile) set once at
+  boot by the app — WREN + WRR(SR1=0, CR1=0x02) + WIP poll — verified by
+  RDCR readback; QE also releases the HOLD#/WP# functions from dq3/dq2.
+- **Software:** reads via 0x6B (quad-output fast read); exact-count RX
+  drain (no per-byte status polls).
+
+### Key commands
+
+```bash
+make -C hw static && make -C hw dfx
+vivado -mode batch -source hw/scripts/build_flash.tcl
+vivado -mode batch -source hw/scripts/program_flash.tcl
+make -C hw rtos && xsdb hw/scripts/run_rtos_dfx.xsdb
+```
+
+## 3. Observations
+
+- `QSPI: QE set, CR1=02` first boot; `QE already set` thereafter.
+- First quad reads returned data **shifted +3 bytes** (and sig
+  mismatches caught it): with 0x6B, RX overhead is **8 bytes** — cmd +
+  3 addr at 1 byte/8 cycles, then 8 dummy cycles at quad = **4 bytes** —
+  not the naive 5; TX must supply matching entries. Fixed; bounce header
+  then byte-perfect and **all four personalities load from FLASH with
+  signatures OK.**
+- **Timing: 4.9–6.1 s per slot — essentially unchanged from single-line
+  6.25 MHz.** Wire time at 25 MB/s is ~17 ms of that; the rest is the
+  polled driver: per-128-byte FIFO churn and per-byte DTR/DRR AXI
+  accesses. The exact-count drain bought only ~8%.
+
+## 4. Data analysis
+
+Quad mode is functionally landed (correct lane handling, QE persistent,
+framing understood and documented) but bought almost nothing, because
+the measurement in entry 25 was mis-attributed: the reader was never
+wire-bound — a 32x wire speedup moved the total by <10%. The real
+lesson reaches back further: the XIP failure in entry 25's debug trail
+almost certainly shares the same root cause as the dead command-mode
+bus (C_USE_STARTUP=1 expecting an external STARTUP_IO connection →
+CCLK never toggling). With today's working STARTUPE2 path, XIP mode +
+quad + the existing DMA→ICAPE2 sink would stream flash to ICAP with no
+CPU in the loop at ~25 MB/s: **~20–40 ms flash swaps** — the identified
+next hardware pass, not attempted tonight.
+
+## 5. Ideas for future experiments
+
+- Re-try XIP (C_USE_STARTUP=0 + external STARTUPE2, quad, QE now set):
+  DMA SA = XIP window → flash→ICAP direct; expect ~20–40 ms.
+- Alternative same-goal: axi_quad_spi interrupt-driven with a small
+  RX-drain ISR, or a custom SPI-to-AXIS bridge into the existing sink.
+- Bounce-dump debug print in dfx_task can go once flash path is boring.
 
 ---
 

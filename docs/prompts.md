@@ -6,6 +6,12 @@ chronological order (newest first). Each entry has the date and time
 
 ---
 
+## 26 Jul 2026 10:20:00
+
+> Try the quad mode SPI speedup
+
+---
+
 ## 26 Jul 2026 00:30:00
 
 > Try the QSPI slot table with the compressed partials

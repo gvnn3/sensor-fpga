@@ -24,6 +24,8 @@ module tricorder_m5_top (
     inout  wire        iic_tmp_sda_io,
     inout  wire        qspi_dq0,
     inout  wire        qspi_dq1,
+    inout  wire        qspi_dq2,
+    inout  wire        qspi_dq3,
     inout  wire        qspi_cs,
     // qspi sck has no user pin: it drives the dedicated CCLK via STARTUPE2
     output wire [3:0]  led_tri_o,
@@ -50,6 +52,8 @@ module tricorder_m5_top (
     wire        qspi_sck;
     wire qspi_io0_i, qspi_io0_o, qspi_io0_t;
     wire qspi_io1_i, qspi_io1_o, qspi_io1_t;
+    wire qspi_io2_i, qspi_io2_o, qspi_io2_t;
+    wire qspi_io3_i, qspi_io3_o, qspi_io3_t;
     wire qspi_ss_i,  qspi_ss_o,  qspi_ss_t;
     wire [31:0] icap_axis_tdata;
     wire        icap_axis_tvalid;
@@ -78,6 +82,12 @@ module tricorder_m5_top (
         .qspi_io1_i   (qspi_io1_i),
         .qspi_io1_o   (qspi_io1_o),
         .qspi_io1_t   (qspi_io1_t),
+        .qspi_io2_i   (qspi_io2_i),
+        .qspi_io2_o   (qspi_io2_o),
+        .qspi_io2_t   (qspi_io2_t),
+        .qspi_io3_i   (qspi_io3_i),
+        .qspi_io3_o   (qspi_io3_o),
+        .qspi_io3_t   (qspi_io3_t),
         .qspi_ss_i    (qspi_ss_i),
         .qspi_ss_o    (qspi_ss_o),
         .qspi_ss_t    (qspi_ss_t),
@@ -172,6 +182,8 @@ module tricorder_m5_top (
 
     IOBUF u_qspi_dq0 (.IO(qspi_dq0), .I(qspi_io0_o), .O(qspi_io0_i), .T(qspi_io0_t));
     IOBUF u_qspi_dq1 (.IO(qspi_dq1), .I(qspi_io1_o), .O(qspi_io1_i), .T(qspi_io1_t));
+    IOBUF u_qspi_dq2 (.IO(qspi_dq2), .I(qspi_io2_o), .O(qspi_io2_i), .T(qspi_io2_t));
+    IOBUF u_qspi_dq3 (.IO(qspi_dq3), .I(qspi_io3_o), .O(qspi_io3_i), .T(qspi_io3_t));
     IOBUF u_qspi_cs  (.IO(qspi_cs),  .I(qspi_ss_o),  .O(qspi_ss_i),  .T(qspi_ss_t));
 
     STARTUPE2 #(.PROG_USR("FALSE"), .SIM_CCLK_FREQ(0.0)) u_startup (
