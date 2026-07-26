@@ -6,6 +6,13 @@ chronological order (newest first). Each entry has the date and time
 
 ---
 
+## 26 Jul 2026 11:30:00
+
+> Try the XIP retry with the fixed STARTUPE2 path
+> *(with "keep going until the swap time is measured" continuations)*
+
+---
+
 ## 26 Jul 2026 10:20:00
 
 > Try the quad mode SPI speedup

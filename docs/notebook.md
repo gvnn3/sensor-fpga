@@ -17,6 +17,7 @@ or removed at runtime from the FPGA dynamic (partial reconfiguration) region.
 
 # Table of Contents
 
+27. [EXPERIMENT 26 Jul 2026 13:37:02 XIP Retry: 21 MB/s Transfers, Data Alignment Unresolved — Reverted](#26-jul-2026-133702) :complete:
 26. [EXPERIMENT 26 Jul 2026 10:46:52 Quad SPI: Correct at 4 Lanes x 50 MHz — and Proof the Reader Is CPU-Bound](#26-jul-2026-104652) :complete:
 25. [EXPERIMENT 26 Jul 2026 01:55:20 QSPI Slot Table: Personalities Load from Flash](#26-jul-2026-015520) :complete:
 24. [EXPERIMENT 26 Jul 2026 00:16:23 Compressed Partials: Sub-Millisecond Swaps (0.78–1.06 ms)](#26-jul-2026-001623) :complete:
@@ -43,6 +44,74 @@ or removed at runtime from the FPGA dynamic (partial reconfiguration) region.
 3. [EXPERIMENT  4 Jul 2026 07:34:03 OHWR Cores for the Dynamic Region of This Host (Alveo U250)](#4-jul-2026-073403) :complete:
 2. [EXPERIMENT  4 Jul 2026 07:26:08 Vitis Libraries Suitability for the FPGA Dynamic Region](#4-jul-2026-072608) :complete:
 1. [EXPERIMENT  4 Jul 2026 07:20:01 Repository and Notebook Initialization](#4-jul-2026-072001) :complete:
+
+---
+
+# EXPERIMENT 26 Jul 2026 13:37:02 XIP Retry: 21 MB/s Transfers, Data Alignment Unresolved — Reverted :complete:
+
+## 1. Hypothesis
+
+Entry 26 predicted XIP mode would work on the fixed STARTUPE2/CCLK path
+(the original XIP failure sharing the dead-bus root cause) and give DMA
+flash→ICAP at ~20–40 ms. Test it.
+
+## 2. How
+
+- **Hardware:** axi_quad_spi back to XIP (quad, C_USE_STARTUP=0,
+  window 0x60000000/16M pinned via C_S_AXI4_BASEADDR); AXI_FULL on a new
+  axi_mem_intercon port; `create_bd_addr_seg` for the DMA space +
+  excludes for the CPU spaces (recipe from entry 25). External
+  STARTUPE2/IOBUF path retained. QE already persistent.
+- **Software:** dfx_task DMA SA = XIP slot address directly — no bounce,
+  no SPI driver (XIP has no command interface; only XIPSR visibility).
+- Two flash byte orders tried: raw and word-byte-swapped slot images.
+
+### Key commands
+
+```bash
+# full chain x2 (raw + swab flash) + revert chain
+make -C hw static dfx && vivado -source hw/scripts/build_flash.tcl \\
+  && make -C hw rtos && vivado -source hw/scripts/program_flash.tcl
+```
+
+## 3. Observations
+
+- **The CCLK-fix prediction was right in part: XIP transfers now
+  complete** — `DFX: RM-PDM live in 20908 us` for a 443,936 B slot =
+  **21.2 MB/s**, byte-identical timing across runs. (The original XIP
+  attempt never completed data at all.)
+- But the RM signature stayed at the previous personality in **both**
+  byte orders — the ICAP never saw a sync word, implying the stream is
+  misaligned *within* words (a byteswap cannot fix an odd-byte shift).
+  Prime suspect: the XIP core's quad command sequence on Spansion
+  (0xEB continuous-read mode bits / dummy-cycle framing) offsetting the
+  data phase — the same class of framing bug found empirically in the
+  command-mode driver (entry 26: 8 overhead bytes, not 5), but here the
+  framing is inside the IP and invisible.
+- No error ever surfaces: XIPSR=1 (RX empty, no flags), DMA completes
+  Idle, signature check is the only tripwire — again.
+- **Reverted to the entry-26 quad-command configuration** and re-gated:
+  all four personalities from FLASH, sigs OK, reads 4.9–6.1 s.
+
+## 4. Data analysis
+
+Half the prediction confirmed (transfers at wire-class speed once CCLK
+exists), half open (data framing). The debugging asymmetry decided the
+revert: command mode exposes every byte to software, XIP exposes
+nothing — closing this needs an ILA on the AXIS sink to see the actual
+beats, a bench session rather than blind iteration. The stack keeps the
+proven flash path; the 20.9 ms measurement stands as the prize for
+fixing XIP framing: ~250x faster flash swaps with zero CPU.
+
+## 5. Ideas for future experiments
+
+- ILA (or 64-beat capture register) on the icap_axis stream; compare
+  beats against the .bin — the shift amount will identify the framing
+  culprit directly.
+- Try XIP standard (single-line) mode first: simpler command sequence
+  (0x0B), lower speed but if it aligns, the quad framing is isolated.
+- Check PG153/AR for Spansion XIP dummy-cycle configuration parameters
+  (C_XIP_PERF_MODE interaction).
 
 ---
 
