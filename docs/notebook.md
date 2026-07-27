@@ -17,6 +17,7 @@ or removed at runtime from the FPGA dynamic (partial reconfiguration) region.
 
 # Table of Contents
 
+30. [EXPERIMENT 27 Jul 2026 06:56:01 Switches Command the Hardware: Personality Loads, Boot Chirp, Mismatch Alert](#27-jul-2026-065601) :complete:
 29. [EXPERIMENT 26 Jul 2026 22:48:43 Test-Mode UI: 15 Switch Functions, 7-Seg Readouts, Tricorder Sounds](#26-jul-2026-224843) :complete:
 28. [EXPERIMENT 26 Jul 2026 22:40:00 ILA Verdict on XIP: Bus Clocks Perfectly, Flash Never Answers — Case Closed](#26-jul-2026-224000) :complete:
 27. [EXPERIMENT 26 Jul 2026 13:37:02 XIP Retry: 21 MB/s Transfers, Data Alignment Unresolved — Reverted](#26-jul-2026-133702) :complete:
@@ -46,6 +47,80 @@ or removed at runtime from the FPGA dynamic (partial reconfiguration) region.
 3. [EXPERIMENT  4 Jul 2026 07:34:03 OHWR Cores for the Dynamic Region of This Host (Alveo U250)](#4-jul-2026-073403) :complete:
 2. [EXPERIMENT  4 Jul 2026 07:26:08 Vitis Libraries Suitability for the FPGA Dynamic Region](#4-jul-2026-072608) :complete:
 1. [EXPERIMENT  4 Jul 2026 07:20:01 Repository and Notebook Initialization](#4-jul-2026-072001) :complete:
+
+---
+
+# EXPERIMENT 27 Jul 2026 06:56:01 Switches Command the Hardware: Personality Loads, Boot Chirp, Mismatch Alert :complete:
+
+## 1. Hypothesis
+
+**DECISION (George):** the entry-29 test-mode functions should not be
+display-only — SW0–SW3 must actually load their DFX personalities; the
+scan sound should also play at boot; the alert sound should also fire on
+a DFX signature mismatch. All three are software-only changes on the
+entry-29 hardware.
+
+## 2. How
+
+- **Equipment:** Nexys A7-100T, entry-29 image (no fabric change; three
+  Vitis-only rebuilds, commits 693ffbe, c3e982f, 02f7e6d).
+- **Switch→personality:** `ui_task` publishes `ui_live.req_rm` for
+  SW0–SW3 (mapping trap handled: HELA = hello-A sig 0xA5A5A5A5 = rms
+  index 3, HELB = index 2); `dfx_task` **drops the 8 s auto-rotation**
+  and swaps reactively on a 250 ms poll, holding `cur_rm = -1` during
+  the load. S0–S3 readouts track it (`----` → `run`); PCM/energy (S10,
+  S11) read the live RM registers when PDM is loaded, sonar peak (S12)
+  when sonar is; the sonar personality auto-fires one ranging burst per
+  second while selected. The scan sound, already tied to switch-on, is
+  now literally the personality load sound.
+- **Boot chirp:** `main()` pulses the scan trigger right after the boot
+  banner; `ui_task` seeds its toggle state from the register.
+- **Mismatch alert:** `dfx_task` pulses the alert trigger whenever a
+  loaded personality fails its signature check. Both tasks moved to
+  read-modify-XOR of the audio register inside `taskENTER_CRITICAL` —
+  single-writer discipline so the two trigger sources cannot revert each
+  other's toggles (the earlier local shadow copy would have).
+
+### Key commands
+
+```bash
+make -C hw rtos && xsdb hw/scripts/run_rtos_dfx.xsdb
+```
+
+## 3. Observations
+
+- Boot: **no auto-rotation lines on UART** (dynamic region now changes
+  only on request); banner register-exact (0x5C505E50/0x78503039 =
+  `trICordr`); **AUDIO trigger register reads 1 after boot** — the chirp
+  fired; scheduler and sensors streaming.
+- Hand gates at the board (George): switch-flip loads with the scan
+  sound per selection, `run` readouts, `Err SEL` + alert on multiple
+  switches.
+- The mismatch-alert path cannot be provoked on a healthy board — it is
+  code-reviewed and boot-gated, and will announce the first real load
+  failure.
+
+## 4. Data analysis
+
+The instrument loop is closed: physical control → OS decision → fabric
+reconfiguration → live readout → sound, all on the flash-resident
+personality store. Removing the rotation demo in favor of switch-driven
+loads is the semantic shift from "demo" to "instrument": the dynamic
+region is now operator state. The audio-register single-writer fix is
+worth remembering as a pattern — toggle-signaling across tasks needs
+either one owner or atomic RMW; the shadow-copy version worked only
+while exactly one task pulsed.
+
+## 5. Ideas for future experiments
+
+- Debounce/settle on switch transitions (a slow flip across two switch
+  positions transits Err SEL and fires the alert — arguably correct,
+  possibly chatty).
+- Show the ACTIVE personality on the display's unused left digits during
+  non-S0-S3 functions (e.g. dot on digit 7 while PDM loaded).
+- Sonar burst cadence + peak into the S12 readout is ready for the real
+  harness: when the piezo chain arrives, SW1 becomes a live rangefinder
+  with zero further software.
 
 ---
 

@@ -6,6 +6,36 @@ chronological order (newest first). Each entry has the date and time
 
 ---
 
+## 27 Jul 2026 06:56:01
+
+> Add the boot chirp and switch functions to the notebook
+
+---
+
+## 27 Jul 2026 06:40:00
+
+> The alert sound should also play when a DFX signature mismatch occurs
+
+---
+
+## 27 Jul 2026 06:20:00
+
+> The scan sound should also play at boot
+
+---
+
+## 27 Jul 2026 00:10:00
+
+> The DFX personalities should be tied to the functions of the switches.
+
+---
+
+## 26 Jul 2026 23:55:00
+
+> I will push, flip the switches and test the sounds now
+
+---
+
 ## 26 Jul 2026 21:25:00
 
 > There is now a sounds directory.  Add the two mp3 files to the repo.  The
