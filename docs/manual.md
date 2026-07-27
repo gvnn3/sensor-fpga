@@ -28,7 +28,7 @@ silkscreen.
 
 | Switch | Function | Tag | Readout shows | Live? |
 |---|---|---|---|---|
-| SW0 | PDM microphone personality | `PdM` | On marker (future: audio energy) | Placeholder |
+| SW0 | PDM microphone personality | `PdM` | `run` when the PDM personality is loaded (flipping SW0 loads it) | Placeholder |
 | SW1 | Sonar personality | `Snr` | Burst/peak | Placeholder |
 | SW2 | Hello-A DFX module | `HELA` | Counter | Placeholder |
 | SW3 | Hello-B DFX module | `HELB` | Counter | Placeholder |
@@ -106,7 +106,7 @@ the FPGA image at 8 kHz):
 
 | Sound | File | When it plays |
 |---|---|---|
-| Scan | `tos_tricorder_scan.mp3` (first ~4 s) | Each time a function is switched ON (a new single switch selection) |
+| Scan | `tos_tricorder_scan.mp3` (first ~4 s) | Each time a function is switched ON (for SW0-SW3 this is also the personality load sound) |
 | Alert | `tos_tricoder_alert.mp3` | On entering the `Err SEL` state (more than one switch up) |
 
 Plug headphones or a speaker into the audio jack (J8). The sound plays

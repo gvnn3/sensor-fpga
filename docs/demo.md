@@ -12,8 +12,9 @@ Verified on: Digilent Nexys A7-100T, Vivado/Vitis 2025.2
 
 ## What you will see
 
-Every 8 seconds the RTOS swaps the dynamic region to the next
-personality and reads its registers, in this rotation:
+Switches SW0-SW3 load the DFX personalities on demand (the scan sound
+doubles as the load sound); the display tracks the load and shows `run`
+when the selected personality is live:
 
 | Personality | Signature | What it does after the swap |
 |---|---|---|

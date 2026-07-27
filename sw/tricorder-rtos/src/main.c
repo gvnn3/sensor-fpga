@@ -231,14 +231,29 @@ static void sensors_task(void *arg)
 
 __attribute__((optimize("O2"))) static void dfx_task(void *arg)
 {
-    unsigned idx = 0;
+    unsigned sonar_tick = 0;
 
     (void)arg;
+    ui_live.req_rm = -1;
+    ui_live.cur_rm = 3;              /* full config A boots with Hello-A */
     for (;;) {
-        vTaskDelay(pdMS_TO_TICKS(8000));
-        const struct rm_desc *rm = &rms[idx];
-        const unsigned slot = idx;   /* flash slot for THIS swap */
+        vTaskDelay(pdMS_TO_TICKS(250));
+
+        /* Sonar personality selected: fire a ranging burst every second */
+        if (ui_live.cur_rm == 1 && ++sonar_tick >= 4) {
+            sonar_tick = 0;
+            *(volatile u32 *)0x44A10008u = 1;
+        }
+
+        int req = ui_live.req_rm;
+        if (req < 0 || req == ui_live.cur_rm)
+            continue;
+
+        /* Switch-driven personality change (SW0-SW3 via the ui task) */
+        const unsigned slot = (unsigned)req;
+        const struct rm_desc *rm = &rms[slot];
         u32 src, len;
+        ui_live.cur_rm = -1;
         if (flash_ok) {
             src = FLASH_BOUNCE;
             len = flash_slots[slot].len;
@@ -246,7 +261,6 @@ __attribute__((optimize("O2"))) static void dfx_task(void *arg)
             src = rm->addr;
             len = *rm->len;
         }
-        idx = (idx + 1) % (sizeof(rms) / sizeof(rms[0]));
         if (!len || len > 0x200000u) {
             xil_printf("DFX: no partial staged for RM-%s, skipping\r\n", rm->name);
             continue;
@@ -293,6 +307,7 @@ __attribute__((optimize("O2"))) static void dfx_task(void *arg)
         if (sig == rm->sig) {
             ui_live.swaps++;
             ui_live.last_swap_us = (t1 - t0) / 100u;
+            ui_live.cur_rm = req;
         }
         xil_printf("DFX: RM-%s live in %u us (flash read %u us), sig=%08x %s\r\n",
                    rm->name, (unsigned)((t1 - t0) / 100u),

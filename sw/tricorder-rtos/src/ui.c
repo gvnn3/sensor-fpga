@@ -166,6 +166,46 @@ static void val_on(char *out)
     out[2] = '\0';
 }
 
+/* S0-S3: switching one on REQUESTS that DFX personality; readout tracks
+ * the load (---- while swapping, run when live). ui_task sets req_rm. */
+static void val_rm(char *out, int rm)
+{
+    const char *m = (ui_live.cur_rm == rm) ? "run" :
+                    (ui_live.cur_rm == -1) ? "----" : "LOAd";
+    while (*m)
+        *out++ = *m++;
+    *out = '\0';
+}
+static void val_rm_pdm(char *out)   { val_rm(out, 0); }
+static void val_rm_snr(char *out)   { val_rm(out, 1); }
+static void val_rm_b(char *out)     { val_rm(out, 2); }
+static void val_rm_a(char *out)     { val_rm(out, 3); }
+
+/* S10-S12: live from the RM registers when the right personality is in */
+#define RM_REG8  (*(volatile u32 *)0x44A10008u)
+#define RM_REGC  (*(volatile u32 *)0x44A1000Cu)
+static void val_pcm(char *out)
+{
+    if (ui_live.cur_rm == 0)
+        fmt_dec(out, (long)(int)RM_REG8);
+    else
+        { out[0]='O'; out[1]='F'; out[2]='F'; out[3]='\0'; }
+}
+static void val_energy(char *out)
+{
+    if (ui_live.cur_rm == 0)
+        fmt_dec(out, (long)(RM_REGC & 0x7FFFFFFFu));
+    else
+        { out[0]='O'; out[1]='F'; out[2]='F'; out[3]='\0'; }
+}
+static void val_peak(char *out)
+{
+    if (ui_live.cur_rm == 1)
+        fmt_dec(out, (long)(RM_REGC >> 16 & 0xFFFu));
+    else
+        { out[0]='O'; out[1]='F'; out[2]='F'; out[3]='\0'; }
+}
+
 static void val_temp(char *out)     /* S4: centi-C -> "dd.d" deci-C */
 {
     int d = ui_live.temp_centi / 10;
@@ -220,19 +260,19 @@ static const struct ui_fn {
     const char *tag;
     void (*val)(char *out);
 } ui_fns[15] = {
-    { "PdM",  val_on },      /* S0  PDM microphone personality */
-    { "Snr",  val_on },      /* S1  sonar personality */
-    { "HELA", val_on },      /* S2  Hello-A DFX module */
-    { "HELB", val_on },      /* S3  Hello-B DFX module */
+    { "PdM",  val_rm_pdm },  /* S0  loads the PDM personality */
+    { "Snr",  val_rm_snr },  /* S1  loads the sonar personality */
+    { "HELA", val_rm_a },    /* S2  loads Hello-A */
+    { "HELB", val_rm_b },    /* S3  loads Hello-B */
     { "tEnP", val_temp },    /* S4  ADT7420 temperature (LIVE) */
     { "I2C",  val_i2c },     /* S5  external bus scan count (LIVE) */
     { "ddr",  val_on },      /* S6  DDR2 status */
     { "SWAP", val_swaps },   /* S7  DFX swap counter (LIVE) */
     { "FLSH", val_on },      /* S8  QSPI flash status */
     { "UP",   val_uptime },  /* S9  uptime seconds (LIVE) */
-    { "PCM",  val_on },      /* S10 last PDM PCM sample */
-    { "EnG",  val_on },      /* S11 last PDM energy window */
-    { "PEA",  val_on },      /* S12 last sonar peak */
+    { "PCM",  val_pcm },     /* S10 PDM PCM sample (live when PDM loaded) */
+    { "EnG",  val_energy },  /* S11 PDM energy (live when PDM loaded) */
+    { "PEA",  val_peak },    /* S12 sonar peak (live when sonar loaded) */
     { "tSWP", val_swap_us }, /* S13 last swap time, us (LIVE) */
     { "uEr",  val_build },   /* S14 build/version ID */
 };
@@ -270,6 +310,9 @@ void ui_task(void *arg)
                 UI_AUDIO = audio;
             }
             prev_id = id;
+            /* S0-S3 request their DFX personality (ui->dfx handoff) */
+            static const int sw2rm[4] = { 0, 1, 3, 2 }; /* HELA=A(3), HELB=B(2) */
+            ui_live.req_rm = (id < 4) ? sw2rm[id] : ui_live.req_rm;
             ui_fns[id].val(val);
             compose(line, ui_fns[id].tag, val);
             ui_show(line);
