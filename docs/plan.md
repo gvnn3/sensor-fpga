@@ -220,6 +220,55 @@ master XDC. **Software next:** FIFO-fronted ICAPE2 writer, QSPI partial
 slots + CRC, FreeRTOS dfx_loader task folding in `sw/dfx_load` logic,
 Ethernet/RMII shim, 1 hr FreeRTOS soak, HWICAP minimal repro for AMD.
 
+### Continuation status — 27 Jul 2026 (post-milestone work, entries 20–30)
+
+The two days after the M-gates turned the milestone platform into an
+operating instrument. All results measured on the attached board;
+21 commits on `gnn-a7-tricorder`.
+
+**Swap-time arc (entries 20–24):** 16.2 s → 1.65 s (the Vitis template's
+-O0 was the culprit, not preemption — proven by byte-identical timings
+under a critical section) → **2.7 ms** (DMA-fed ICAPE2: wire speed to
+the microsecond, 267,763 words at one per 100 MHz cycle) → **0.78–1.06
+ms** with compressed partials (2.5–3.4x smaller, MFWR streams at full
+rate). A personality change now costs less than one FreeRTOS tick.
+
+**Flash residency (entries 25–26):** QSPI slot table — partials live in
+the S25FL128S in 1 MiB slots; one script emits both the MCS image and
+the compiled-in manifest. Command-mode quad SPI (QE set persistently,
+0x6B framing measured on hardware: 8 overhead bytes, not 5) reads slots
+at 4.9–6.1 s — **CPU-bound, not wire-bound**: a 32x wire speedup moved
+totals under 10%. The board changes personalities with no host attached.
+
+**XIP investigation (entries 27–28, closed):** three configurations,
+ILA-instrumented. Verdict: the AXI Quad SPI XIP core clocks the bus with
+perfect quad timing while the flash never answers its command sequence
+(RDATA constant 0xCC = idle lanes); standard mode transfers but never
+frames. Command-mode stays the production path; the ILA capture recipe
+(`hw/scripts/ila_capture.tcl` + debug-rule automation) is committed for
+any future attempt. A regression from these experiments — dq2/dq3 left
+floating in the top wrapper — was found at the final gate and fixed.
+
+**Test-mode UI + sounds (entries 29–30, George's feature requests):**
+SW0–SW14 select 15 exclusive functions with 7-seg readouts (live: temp,
+I2C count, swap count/time, uptime, RM registers), idle banner, `Err
+SEL` on multi-select; SW0–SW3 **load their DFX personality for real**
+(auto-rotation removed — the dynamic region is operator state), sonar
+auto-fires while selected. TOS tricorder sounds from a 48 KiB BRAM ROM:
+scan on every function-on (= the load sound) and at boot; alert on
+`Err SEL` and on any signature mismatch. Built via an ultracode workflow
+whose adversarial verifier proved the three-layer display protocol
+coherent pre-synthesis; final display gate was register-exact
+(`trICordr` = 0x5C505E50/0x78503039). `docs/manual.md` is the user
+manual; `docs/demo.md` stays the runbook.
+
+**Standing next steps:** quad-command read speedup if flash swaps ever
+need sub-second (interrupt-driven SPI ~1 s, or XIP with a different
+memory-vendor table + the ILA method); QSPI full self-boot (golden image
+already in slot 0); switch debounce; the sensor harness — SW1 becomes a
+live rangefinder with zero further software once the piezo chain is
+wired.
+
 ## 6. Standing risks
 
 | Risk | Mitigation point |
