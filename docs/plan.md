@@ -281,7 +281,29 @@ after cfgmem programming sessions), boot-image CRC32, switch debounce,
 sub-second flash reads (interrupt-driven SPI or XIP with another
 memory-vendor table + the committed ILA method).
 
-## 6. Standing risks
+## 6. Connector shopping list (harness wiring)
+
+Board side is uniformly 0.1" female 2x6 Pmod sockets; all logic 3.3 V.
+Rows added to `docs/tricorder_parts.xlsx` ("Wiring / connectors",
+~$56 estimated):
+
+- **Dupont jumper kits** (M-M, M-F, F-F; 10 cm + 20 cm) — camera, ADC/DAC,
+  mics, AFE control. Keep cam_pclk and the ADC bus on 10 cm runs.
+- **2x6 0.1" male pin headers** (or Digilent 2x6 Pmod cables) x5 — clean
+  mating into JA-JD/JXADC instead of loose pins.
+- **STEMMA QT / Qwiic JST-SH cables** x4 + **one JST-SH-to-male-dupont
+  adapter** — the five I2C breakouts daisy-chain and enter at JA1/JA2;
+  breakouts carry their own pull-ups, no harness resistors.
+- **SMA**: one male-male RG316 cable + two SMA-to-0.1" pigtails — the SiPM
+  eval board and the AD8332 analog path are SMA-only.
+- **Breadboard + wire kit** — TLV3501 comparator, mic fan-out, AFE area.
+- **2-pin screw terminals** — piezo bare wires, twisted pair out.
+
+Power note: everything runs from Pmod 3.3 V; only the SCD-41 has ~200 mA
+peaks — give it its own Pmod VCC, don't stack it with the camera. The
+wiring sheet is `hw/constraints/tricorder-nexys-a7-100t.xdc`.
+
+## 7. Standing risks
 
 | Risk | Mitigation point |
 |---|---|

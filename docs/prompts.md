@@ -6,6 +6,13 @@ chronological order (newest first). Each entry has the date and time
 
 ---
 
+## 27 Jul 2026 08:10:00
+
+> What kind of connectors do I need to buy to wire up the sensors?
+> / Add the connector shopping list to the plan doc and the parts excel sheet
+
+---
+
 ## 27 Jul 2026 07:50:00
 
 > Update the plan doc and I will push everything
