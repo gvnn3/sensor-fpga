@@ -281,7 +281,7 @@ void ui_task(void *arg)
 {
     char line[12], val[12];
     int prev_id = -1;      /* -1 idle, -2 error, 0..14 selected function */
-    u32 audio = 0;
+    u32 audio = UI_AUDIO & 3u;   /* seed from the boot chirp's toggle state */
 
     (void)arg;
     for (;;) {

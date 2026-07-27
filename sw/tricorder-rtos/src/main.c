@@ -336,6 +336,7 @@ int main(void)
     XGpio_SetDataDirection(&gpio, 1, 0x0);
 
     xil_printf("RTOS: FreeRTOS on MicroBlaze — tricorder M4\r\n");
+    *(volatile u32 *)0x40050000u = 1;   /* boot chirp: play the scan sound */
 
     {   /* SPI liveness: JEDEC ID (S25FL128S = 01 20 18) */
         u8 j[4] = { 0x9F, 0xFF, 0xFF, 0xFF };
