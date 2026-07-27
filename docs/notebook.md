@@ -17,6 +17,8 @@ or removed at runtime from the FPGA dynamic (partial reconfiguration) region.
 
 # Table of Contents
 
+29. [EXPERIMENT 26 Jul 2026 22:48:43 Test-Mode UI: 15 Switch Functions, 7-Seg Readouts, Tricorder Sounds](#26-jul-2026-224843) :complete:
+28. [EXPERIMENT 26 Jul 2026 22:40:00 ILA Verdict on XIP: Bus Clocks Perfectly, Flash Never Answers — Case Closed](#26-jul-2026-224000) :complete:
 27. [EXPERIMENT 26 Jul 2026 13:37:02 XIP Retry: 21 MB/s Transfers, Data Alignment Unresolved — Reverted](#26-jul-2026-133702) :complete:
 26. [EXPERIMENT 26 Jul 2026 10:46:52 Quad SPI: Correct at 4 Lanes x 50 MHz — and Proof the Reader Is CPU-Bound](#26-jul-2026-104652) :complete:
 25. [EXPERIMENT 26 Jul 2026 01:55:20 QSPI Slot Table: Personalities Load from Flash](#26-jul-2026-015520) :complete:
@@ -44,6 +46,133 @@ or removed at runtime from the FPGA dynamic (partial reconfiguration) region.
 3. [EXPERIMENT  4 Jul 2026 07:34:03 OHWR Cores for the Dynamic Region of This Host (Alveo U250)](#4-jul-2026-073403) :complete:
 2. [EXPERIMENT  4 Jul 2026 07:26:08 Vitis Libraries Suitability for the FPGA Dynamic Region](#4-jul-2026-072608) :complete:
 1. [EXPERIMENT  4 Jul 2026 07:20:01 Repository and Notebook Initialization](#4-jul-2026-072001) :complete:
+
+---
+
+# EXPERIMENT 26 Jul 2026 22:48:43 Test-Mode UI: 15 Switch Functions, 7-Seg Readouts, Tricorder Sounds :complete:
+
+## 1. Hypothesis
+
+Can the board become a self-explanatory instrument: SW0–SW14 each select
+one of 15 mutually exclusive test-mode functions with a readout on the
+8-digit 7-seg display (error display on multiple selection), and the TOS
+tricorder scan sound playing whenever a function is switched on?
+
+## 2. How
+
+- **Hardware:** axi_gpio_3 (16 switch inputs, 0x40030000), axi_gpio_4
+  (dual 32-bit = 64-bit raw segment register, 0x40040000/8), axi_gpio_5
+  (2 toggle-to-play audio triggers, 0x40050000); top-level
+  `sevenseg_scan.v` (1 ms/digit multiplex, register active-high →
+  pins active-low inverted once) and `audio_player.v` (48 KiB audio ROM
+  in BRAM — scan 4.1 s + alert 1.2 s at 8 kHz/8-bit — sigma-delta PWM
+  into AUD_PWM/A11, amp enable D12). `sounds/*.mp3` committed;
+  `tools/mp3_to_mem.py` regenerates the ROM (miniaudio, no ffmpeg).
+- **Software:** `ui.c`/`ui.h` — font, right-aligned compose, 15-function
+  table (live: temp, I2C count, swap count, uptime, last-swap-µs), 100 ms
+  task; scan sound on each new single-switch selection, alert sound on
+  entering `Err SEL`. `ui_live` fed by the sensor and DFX tasks.
+- **Process:** ultracode workflow — 4 parallel implementers (RTL, XDC,
+  UI C, manual) + adversarial verifier, which confirmed pins/protocol/
+  digit-order coherence across all three layers and caught 4 defects
+  before hardware (unrenderable tags, W-glyph/manual mismatch, two
+  manual wording bugs). Docs: `docs/manual.md` (user manual).
+
+### Key commands
+
+```bash
+make -C hw static dfx && vivado -source hw/scripts/build_flash.tcl
+make -C hw rtos && vivado -source hw/scripts/program_flash.tcl
+xsdb hw/scripts/run_rtos_dfx.xsdb
+```
+
+## 3. Observations
+
+- Final image WNS +1.268 ns; all five chain stages PASS.
+- **Register-level display gate: byte-exact.** With all switches down,
+  DISP_LO=0x5C505E50 DISP_HI=0x78503039 — decoding to the idle banner
+  `trICordr` through the committed font, matching the computed
+  expectation to the last bit. Switch inputs read 0; audio triggers idle.
+- Full demo unchanged around it: flash-sourced swaps 4/4 with signatures
+  (see entry 28), PDM live audio, sonar bursts, ADT7420 stream.
+- **Human-only gates remain:** physically flipping switches (readouts,
+  Err SEL, exclusivity) and hearing the scan/alert sounds — the register
+  proxies verify the full digital path up to the pins.
+
+## 4. Data analysis
+
+The three-layer protocol (software font/compose → 64-bit register →
+scanner) was specified once in the workflow prompt and implemented by
+three different agents — the verifier proving digit order and polarity
+coherent across all three before synthesis is what made this land in one
+hardware iteration. The audio path reuses the toggle-signaling idiom
+from the ICAPE2 writer, and baking sounds into BRAM (12 of ~110 free)
+costs no CPU and no DDR bandwidth. Test mode is honest: placeholders say
+`On`, live values are live, and the manual documents which is which.
+
+## 5. Ideas for future experiments
+
+- George: flip switches (SW4 temp, SW9 uptime live; two up → Err SEL +
+  alert), listen for the scan sound on each function-on.
+- Wire function switches to actual DFX personality selection (SW0-SW3
+  choosing the loaded RM) — the ui and dfx tasks already share state.
+- Alert sound on SIGNATURE MISMATCH too, not just Err SEL.
+
+---
+
+# EXPERIMENT 26 Jul 2026 22:40:00 ILA Verdict on XIP: Bus Clocks Perfectly, Flash Never Answers — Case Closed :complete:
+
+## 1. Hypothesis
+
+Entry 27 left XIP data framing unexplained. Does a System ILA on the XIP
+core's AXI read channel show a byte shift that can be corrected?
+
+## 2. How
+
+- system_ila (via the `xilinx.com:bd_rule:debug` automation — manual
+  monitor-net connects fail obscurely in batch) on the axi_quad_spi
+  AXI_FULL net; `write_debug_probes` added to the DFX flow;
+  `hw/scripts/ila_capture.tcl` arms on RVALID and dumps CSV while the
+  demo's flash swap fires.
+- XIP re-tried in BOTH quad and standard SPI modes on the fixed
+  STARTUPE2/CCLK path.
+
+## 3. Observations
+
+- **Quad XIP capture:** ARs march perfectly (0xC00040/80/C0, 16-beat
+  INCR), R beats exactly every 16 cycles — 32 bits/4 lanes at 50 MHz,
+  i.e. the SPI bus clocking at full quad speed — but **every RDATA beat
+  is 0xCCCCCCCC**: dq3/dq2 pulled high, dq1/dq0 low. The flash never
+  drives — it does not recognize the XIP core's quad command sequence.
+  Not a shift; silence. No error in XIPSR, none in the DMA.
+- **Standard XIP:** transfers complete at single-line speed (73 ms/slot)
+  but the ICAP never syncs either — same disease, milder symptom.
+- Regression found during the final rebuild: the XIP-standard experiment
+  had left dq2/dq3 Hi-Z and disconnected in the top wrapper — the
+  restored quad-command core was then sampling two floating lanes.
+  Reconnected; **flash-sourced swaps pass again end-to-end**
+  (JEDEC 01 20 18, QE persistent, 4/4 personalities from FLASH,
+  4.8–6.1 s reads + ~1 ms ICAP).
+
+## 4. Data analysis
+
+Closed: the axi_quad_spi XIP mode as configured (2025.2, Spansion table,
+S25FL128S) issues a command set this flash ignores — in quad it is
+outright silent, and no software-visible knob changes the command
+protocol. The working architecture is command-mode quad reads (software
+framing, entry 26) + DMA→ICAPE2; XIP would only be worth revisiting with
+a different memory-vendor table or IP version, armed with this exact ILA
+method (the capture script is committed). The dq2/dq3 float regression
+is a lesson in experiment hygiene: hardware experiments that mutate
+shared wrappers need the revert to be as tested as the change.
+
+## 5. Ideas for future experiments
+
+- If flash swaps ever need to be faster than ~5 s: try C_SPI_MEMORY
+  {1,2} (winbond/numonyx command tables) in XIP against the ILA method,
+  or interrupt-driven command-mode reads (~1 s reachable).
+- The ILA + debug-automation recipe is reusable for the AD9226 capture
+  path when the harness arrives.
 
 ---
 

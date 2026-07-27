@@ -29,8 +29,11 @@ read_bd $bd
 if {![get_property IS_GENERATED [get_files $bd]]} { generate_target all [get_files $bd] }
 read_verilog build/m2_proj/m2_static.gen/sources_1/bd/static_region/hdl/static_region_wrapper.v
 read_verilog hw/rtl/tricorder_m5_top.v
+read_verilog hw/rtl/sevenseg_scan.v
+read_verilog hw/rtl/audio_player.v
 read_verilog hw/dfx/rm_slot_bb.v
 read_xdc hw/constraints/m2-static-nexys-a7.xdc
+read_xdc hw/constraints/switches-7seg.xdc
 read_xdc hw/dfx/mic.xdc
 read_xdc hw/dfx/ultra.xdc
 synth_design -top tricorder_m5_top -part $part
@@ -53,6 +56,7 @@ write_checkpoint -force $out/config_a_routed.dcp
 # proportionally faster through the DMA->ICAPE2 path
 set_property BITSTREAM.GENERAL.COMPRESS TRUE [current_design]
 write_bitstream -force -no_partial_bitfile $out/full_a.bit
+write_debug_probes -force $out/full_a.ltx
 write_bitstream -force -bin_file -cell u_rm $out/rm_a_partial.bit
 
 # --- Carve out the RM, lock static, swap in each remaining RM -------------

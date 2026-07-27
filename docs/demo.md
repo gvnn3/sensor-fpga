@@ -8,7 +8,7 @@ keep running.
 
 Verified on: Digilent Nexys A7-100T, Vivado/Vitis 2025.2
 (`~/Vivado/2025.2`), Ubuntu, branch `gnn-a7-tricorder`
-(notebook entries 11–25 record the underlying experiments).
+(notebook entries 11–29 record the underlying experiments).
 
 ## What you will see
 
@@ -27,6 +27,9 @@ Interleaved throughout, uninterrupted by the swaps:
 - `RTOS: tick N` — heartbeat task (LEDs 0–3 count in binary)
 - `ADT7420: 3x.xx C` — on-board temperature sensor over I2C, once a second
 - `QSPI: JEDEC 01 20 18` — flash identified at boot
+- The 7-seg display shows `trICordr` until a switch selects a test-mode
+  function — see `docs/manual.md` for the switch table, error display,
+  and the scan/alert sounds
 - `I2C-EXT: scan: -> 0 device(s)` — external JA sensor bus walk
   (0 devices until the sensor harness is wired; with the harness expect
   0x76/77 BME688, 0x62 SCD-41, 0x10 VEML7700, 0x39 AS7341, 0x57 MAX30105)

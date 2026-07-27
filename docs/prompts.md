@@ -6,6 +6,35 @@ chronological order (newest first). Each entry has the date and time
 
 ---
 
+## 26 Jul 2026 21:25:00
+
+> There is now a sounds directory.  Add the two mp3 files to the repo.  The
+> scan sound should be triggered whenever a function is turned on by a
+> switch.
+
+---
+
+## 26 Jul 2026 14:30:00
+
+> There are 15 switches on the board and and 8 digit display.  Attach one
+> function to each switch and when the function is triggered put a readout
+> on the display.  For now there are no real devices, but this is a test
+> mode to show that each function can be turned on or off.  Each function
+> is exclusive, e.g. if more than one switch is in the ON position anerror
+> should be shown on the display.  Design the system and use ultracode to
+> implement it.  Create a new document manual.md that is the user manual
+> and says what the switches control.
+
+---
+
+## 26 Jul 2026 13:50:00
+
+> Try the ILA on the icap_axis stream
+> *(ILA captured constant 0xCCCCCCCC with perfect quad timing — flash
+> silent to the XIP core's quad command; XIP standard-mode chain launched)*
+
+---
+
 ## 26 Jul 2026 11:30:00
 
 > Try the XIP retry with the fixed STARTUPE2 path

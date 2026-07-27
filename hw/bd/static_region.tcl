@@ -219,11 +219,10 @@ apply_bd_automation -rule xilinx.com:bd_rule:axi4 -config { \
 } [get_bd_intf_pins axi_dma_0/M_AXI_MM2S]
 externalize axi_dma_0/M_AXIS_MM2S icap_axis
 
-# QSPI config flash, XIP (execute-in-place) mode: the 16 MiB flash appears
-# read-only at 0x60000000, so the DMA can stream a partial from flash
-# straight into the ICAPE2 sink (and the CPU can read the slot table).
-# Standard (single-line) SPI mode: works with the flash's factory QE=0;
-# quad XIP is a later upgrade. SCK comes from STARTUPE2 (config pin).
+# QSPI config flash, command-mode quad SPI (proven path, entry 26): the
+# CPU reads slots via 0x6B into a DDR2 bounce, then DMA->ICAPE2. XIP was
+# tried and abandoned (entries 27-29: transfers clean, framing never
+# syncs). SCK reaches the flash via the top wrapper's STARTUPE2.
 set qspi [create_bd_cell -type ip -vlnv [ipv axi_quad_spi] axi_quad_spi_0]
 set_property -dict [list \
     CONFIG.C_XIP_MODE {0} \
@@ -245,9 +244,46 @@ apply_bd_automation -rule xilinx.com:bd_rule:axi4 -config { \
 foreach {pin dir} {io0_i I io0_o O io0_t O io1_i I io1_o O io1_t O \
                    io2_i I io2_o O io2_t O io3_i I io3_o O io3_t O \
                    ss_i I ss_o O ss_t O sck_i I sck_o O} {
+    if {[llength [get_bd_pins -quiet axi_quad_spi_0/${pin}]] == 0} { continue }
     create_bd_port -dir $dir qspi_${pin}
     connect_bd_net [get_bd_ports qspi_${pin}] [get_bd_pins axi_quad_spi_0/${pin}]
 }
+
+# Test-mode UI: axi_gpio_3 = 16 switches in; axi_gpio_4 = dual 32-bit out
+# feeding the 64-bit 7-seg register (scanner RTL lives in the top wrapper)
+set gpio3 [create_bd_cell -type ip -vlnv [ipv axi_gpio] axi_gpio_3]
+set_property -dict [list CONFIG.C_GPIO_WIDTH {16} CONFIG.C_ALL_INPUTS {1}] $gpio3
+apply_bd_automation -rule xilinx.com:bd_rule:axi4 -config { \
+    Clk_master {Auto} Clk_slave {Auto} Clk_xbar {Auto} \
+    Master {/microblaze_0 (Periph)} Slave {/axi_gpio_3/S_AXI} \
+    ddr_seg {Auto} intc_ip {New AXI Interconnect} master_apm {0} \
+} [get_bd_intf_pins axi_gpio_3/S_AXI]
+create_bd_port -dir I -from 15 -to 0 sw
+connect_bd_net [get_bd_ports sw] [get_bd_pins axi_gpio_3/gpio_io_i]
+
+set gpio4 [create_bd_cell -type ip -vlnv [ipv axi_gpio] axi_gpio_4]
+set_property -dict [list CONFIG.C_GPIO_WIDTH {32} CONFIG.C_ALL_OUTPUTS {1} \
+    CONFIG.C_IS_DUAL {1} CONFIG.C_GPIO2_WIDTH {32} CONFIG.C_ALL_OUTPUTS_2 {1}] $gpio4
+apply_bd_automation -rule xilinx.com:bd_rule:axi4 -config { \
+    Clk_master {Auto} Clk_slave {Auto} Clk_xbar {Auto} \
+    Master {/microblaze_0 (Periph)} Slave {/axi_gpio_4/S_AXI} \
+    ddr_seg {Auto} intc_ip {New AXI Interconnect} master_apm {0} \
+} [get_bd_intf_pins axi_gpio_4/S_AXI]
+create_bd_port -dir O -from 31 -to 0 disp_lo
+connect_bd_net [get_bd_ports disp_lo] [get_bd_pins axi_gpio_4/gpio_io_o]
+create_bd_port -dir O -from 31 -to 0 disp_hi
+connect_bd_net [get_bd_ports disp_hi] [get_bd_pins axi_gpio_4/gpio2_io_o]
+
+# Audio effect triggers: 2-bit toggle GPIO -> audio_player in the top
+set gpio5 [create_bd_cell -type ip -vlnv [ipv axi_gpio] axi_gpio_5]
+set_property -dict [list CONFIG.C_GPIO_WIDTH {2} CONFIG.C_ALL_OUTPUTS {1}] $gpio5
+apply_bd_automation -rule xilinx.com:bd_rule:axi4 -config { \
+    Clk_master {Auto} Clk_slave {Auto} Clk_xbar {Auto} \
+    Master {/microblaze_0 (Periph)} Slave {/axi_gpio_5/S_AXI} \
+    ddr_seg {Auto} intc_ip {New AXI Interconnect} master_apm {0} \
+} [get_bd_intf_pins axi_gpio_5/S_AXI]
+create_bd_port -dir O -from 1 -to 0 audio_ctl
+connect_bd_net [get_bd_ports audio_ctl] [get_bd_pins axi_gpio_5/gpio_io_o]
 
 # RM clock + reset out to the top-level wrapper
 create_bd_port -dir O -type clk rm_clk
@@ -263,11 +299,12 @@ set_property offset 0x40600000 [get_bd_addr_segs {microblaze_0/Data/SEG_axi_uart
 set_property offset 0x40000000 [get_bd_addr_segs {microblaze_0/Data/SEG_axi_gpio_0_Reg}]
 set_property offset 0x40010000 [get_bd_addr_segs {microblaze_0/Data/SEG_axi_gpio_1_Reg}]
 set_property offset 0x40020000 [get_bd_addr_segs {microblaze_0/Data/SEG_axi_gpio_2_Reg}]
+set_property offset 0x40030000 [get_bd_addr_segs {microblaze_0/Data/SEG_axi_gpio_3_Reg}]
+set_property offset 0x40040000 [get_bd_addr_segs {microblaze_0/Data/SEG_axi_gpio_4_Reg}]
+set_property offset 0x40050000 [get_bd_addr_segs {microblaze_0/Data/SEG_axi_gpio_5_Reg}]
 set_property offset 0x41E00000 [get_bd_addr_segs {microblaze_0/Data/SEG_axi_dma_0_Reg}]
-set qreg [get_bd_addr_segs -of_objects [get_bd_addr_spaces microblaze_0/Data] -filter {NAME =~ "*quad_spi*"}]
+set qreg [get_bd_addr_segs -of_objects [get_bd_addr_spaces microblaze_0/Data] -filter {NAME =~ "*quad_spi*Reg*"}]
 if {[llength $qreg] == 1} { set_property offset 0x44A20000 $qreg }
-# XIP segment carries usage=register; the DMA's MM2S space only auto-accepts
-# usage=memory, so force-include it, then place it.
 set_property offset 0x41C00000 [get_bd_addr_segs {microblaze_0/Data/SEG_axi_timer_0_Reg}]
 set rm_seg [get_bd_addr_segs -of_objects [get_bd_addr_spaces microblaze_0/Data] \
     -filter {NAME =~ "*rm*"}]

@@ -16,6 +16,11 @@ module tricorder_m5_top (
     input  wire [11:0] adc_data,
     output wire        adc_clk,
     input  wire        cpu_resetn,
+    input  wire [15:0] sw,
+    output wire [7:0]  seg,
+    output wire [7:0]  an,
+    output wire        aud_pwm,
+    output wire        aud_sd,
     input  wire        uart_rxd,
     output wire        uart_txd,
     inout  wire        iic_ext_scl_io,
@@ -50,6 +55,8 @@ module tricorder_m5_top (
     wire [31:0] icapw_data;
     wire [0:0]  icapw_go;
     wire        qspi_sck;
+    wire [31:0] disp_lo, disp_hi;
+    wire [1:0]  audio_ctl;
     wire qspi_io0_i, qspi_io0_o, qspi_io0_t;
     wire qspi_io1_i, qspi_io1_o, qspi_io1_t;
     wire qspi_io2_i, qspi_io2_o, qspi_io2_t;
@@ -110,6 +117,10 @@ module tricorder_m5_top (
         .ddr2_we_n    (ddr2_we_n),
         .icapw_data   (icapw_data),
         .icapw_go     (icapw_go),
+        .sw           (sw),
+        .disp_lo      (disp_lo),
+        .disp_hi      (disp_hi),
+        .audio_ctl    (audio_ctl),
         .icap_axis_tdata  (icap_axis_tdata),
         .icap_axis_tvalid (icap_axis_tvalid),
         .icap_axis_tready (1'b1),
@@ -137,6 +148,20 @@ module tricorder_m5_top (
     );
 
     assign pdm_m_lrsel = 1'b0; // ADMP421: data valid on clk low
+
+    sevenseg_scan u_sevenseg (
+        .clk  (rm_clk),
+        .disp ({disp_hi, disp_lo}),
+        .seg  (seg),
+        .an   (an)
+    );
+
+    audio_player u_audio (
+        .clk     (rm_clk),
+        .ctl     (audio_ctl),
+        .aud_pwm (aud_pwm),
+        .aud_sd  (aud_sd)
+    );
 
     // Raw ICAPE2 writer (second ICAP site; the HWICAP occupies the other).
     // One config word per go-toggle: CSIB low for exactly one 100 MHz cycle.

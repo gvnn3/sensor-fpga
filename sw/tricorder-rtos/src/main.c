@@ -15,6 +15,7 @@
 #include "xiic_l.h"
 #include "xil_printf.h"
 #include "xgpio.h"
+#include "ui.h"
 #include "slots.h"
 
 #define EXT_IIC_BASE  XPAR_AXI_IIC_0_BASEADDR /* JA harness bus */
@@ -32,6 +33,20 @@
 /* axi_timer counter 1 (counter 0 drives the FreeRTOS tick) */
 #define TMR_CSR1   (*(volatile u32 *)0x41C00010u)
 #define TMR_TCR1   (*(volatile u32 *)0x41C00018u)
+/* axi_quad_spi (command mode) — flash slot reads */
+#define SPI_BASE   0x44A20000u
+#define SPI_SRR    (*(volatile u32 *)(SPI_BASE + 0x40))
+#define SPI_CR     (*(volatile u32 *)(SPI_BASE + 0x60))
+#define SPI_SR     (*(volatile u32 *)(SPI_BASE + 0x64))
+#define SPI_DTR    (*(volatile u32 *)(SPI_BASE + 0x68))
+#define SPI_DRR    (*(volatile u32 *)(SPI_BASE + 0x6C))
+#define SPI_SSR    (*(volatile u32 *)(SPI_BASE + 0x70))
+#define SPICR_BASE 0x086u  /* MANUAL_SS | MASTER | SPE */
+#define SPICR_INH  0x100u
+#define SPISR_RXE  0x1u
+#define SPISR_TXE  0x4u
+#define FLASH_BOUNCE 0x85000000u
+
 /* axi_quad_spi (command mode) — flash slot reads */
 #define SPI_BASE   0x44A20000u
 #define SPI_SRR    (*(volatile u32 *)(SPI_BASE + 0x40))
@@ -74,7 +89,7 @@ static const struct { u32 addr, len; } flash_slots[] = {
     { QSPI_XIP_BASE + SLOT_B_OFF,     SLOT_B_LEN },
     { QSPI_XIP_BASE + SLOT_A_OFF,     SLOT_A_LEN },
 };
-static int flash_ok = 1; /* falls back to DDR staging on first bad sig */
+static int flash_ok = 1;
 
 __attribute__((optimize("O2"))) static void spi_init(void)
 {
@@ -139,6 +154,8 @@ __attribute__((optimize("O2"))) static void spi_flash_read(u32 off, u8 *dst, u32
         len -= n;
     }
 }
+ /* falls back to DDR staging on first bad sig */
+
 
 __attribute__((always_inline)) static inline u32 bswap32(u32 w)
 {
@@ -190,6 +207,7 @@ static void sensors_task(void *arg)
             }
         }
         xil_printf(" -> %d device(s)\r\n", found);
+        ui_live.i2c_devices = found;
 
         /* On-board ADT7420: 13-bit temperature, reg 0x00/0x01 */
         buf[0] = 0x00;
@@ -200,6 +218,7 @@ static void sensors_task(void *arg)
                 t16 -= 0x2000;
             /* 1/16 C per LSB; print as centi-C without floats */
             int centi = t16 * 100 / 16;
+            ui_live.temp_centi = centi;
             xil_printf("ADT7420: %d.%02d C\r\n", centi / 100,
                        (centi < 0 ? -centi : centi) % 100);
         } else {
@@ -242,10 +261,6 @@ __attribute__((optimize("O2"))) static void dfx_task(void *arg)
             spi_flash_read(flash_slots[slot].addr - QSPI_XIP_BASE,
                            (u8 *)FLASH_BOUNCE, len);
             t_spi = TMR_TCR1 - s0;
-            u8 *b = (u8 *)FLASH_BOUNCE;
-            xil_printf("  bounce: %02x%02x%02x%02x %02x%02x%02x%02x @20: %02x%02x%02x%02x %02x%02x%02x%02x\r\n",
-                       b[0],b[1],b[2],b[3],b[4],b[5],b[6],b[7],
-                       b[32],b[33],b[34],b[35],b[36],b[37],b[38],b[39]);
         }
         /* Critical section: tick interrupts add ~40x to the GPIO pacing
          * loop. Ticks freeze during the stream, so time it with the
@@ -275,6 +290,10 @@ __attribute__((optimize("O2"))) static void dfx_task(void *arg)
         u32 t1 = TMR_TCR1;
 
         u32 sig = RM_SIG;
+        if (sig == rm->sig) {
+            ui_live.swaps++;
+            ui_live.last_swap_us = (t1 - t0) / 100u;
+        }
         xil_printf("DFX: RM-%s live in %u us (flash read %u us), sig=%08x %s\r\n",
                    rm->name, (unsigned)((t1 - t0) / 100u),
                    (unsigned)(t_spi / 100u), sig,
@@ -336,6 +355,7 @@ int main(void)
     xTaskCreate(heartbeat_task, "beat", 512, NULL, tskIDLE_PRIORITY + 1, NULL);
     xTaskCreate(sensors_task, "sens", 1024, NULL, tskIDLE_PRIORITY + 2, NULL);
     xTaskCreate(dfx_task, "dfx", 1024, NULL, tskIDLE_PRIORITY + 3, NULL);
+    xTaskCreate(ui_task, "ui", 1024, NULL, tskIDLE_PRIORITY + 1, NULL);
 
     vTaskStartScheduler();
 
