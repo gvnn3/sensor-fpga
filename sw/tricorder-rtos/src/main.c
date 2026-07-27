@@ -26,6 +26,7 @@
 #define DECOUPLE   (*(volatile u32 *)0x40010000u)
 #define ICAPW_DATA (*(volatile u32 *)0x40020000u)
 #define ICAPW_GO   (*(volatile u32 *)0x40020008u)
+#define UI_AUDIO   (*(volatile u32 *)0x40050000u) /* bit0 scan, bit1 alert */
 #define RM_COUNT   (*(volatile u32 *)0x44A10000u)
 #define RM_SIG     (*(volatile u32 *)0x44A10004u)
 #define RM_CTRL    (*(volatile u32 *)0x44A10008u)
@@ -313,6 +314,11 @@ __attribute__((optimize("O2"))) static void dfx_task(void *arg)
                    rm->name, (unsigned)((t1 - t0) / 100u),
                    (unsigned)(t_spi / 100u), sig,
                    sig == rm->sig ? "OK" : "MISMATCH");
+        if (sig != rm->sig) {
+            taskENTER_CRITICAL();
+            UI_AUDIO = UI_AUDIO ^ 2u;      /* alert: bad personality load */
+            taskEXIT_CRITICAL();
+        }
         if (sig != rm->sig && flash_ok) {
             xil_printf("DFX: flash source failed - falling back to DDR staging\r\n");
             flash_ok = 0;

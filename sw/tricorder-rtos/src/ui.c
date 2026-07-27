@@ -281,7 +281,6 @@ void ui_task(void *arg)
 {
     char line[12], val[12];
     int prev_id = -1;      /* -1 idle, -2 error, 0..14 selected function */
-    u32 audio = UI_AUDIO & 3u;   /* seed from the boot chirp's toggle state */
 
     (void)arg;
     for (;;) {
@@ -298,16 +297,18 @@ void ui_task(void *arg)
         } else if (n > 1) {
             ui_show("Err SEL");
             if (prev_id != -2) {           /* entering error: alert sound */
-                audio ^= 2u;
-                UI_AUDIO = audio;
+                taskENTER_CRITICAL();
+                UI_AUDIO = UI_AUDIO ^ 2u;
+                taskEXIT_CRITICAL();
             }
             prev_id = -2;
         } else {
             while (!(sw & (1u << id)))
                 id++;
             if (id != prev_id) {           /* new function on: scan sound */
-                audio ^= 1u;
-                UI_AUDIO = audio;
+                taskENTER_CRITICAL();
+                UI_AUDIO = UI_AUDIO ^ 1u;
+                taskEXIT_CRITICAL();
             }
             prev_id = id;
             /* S0-S3 request their DFX personality (ui->dfx handoff) */

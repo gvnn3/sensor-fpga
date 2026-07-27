@@ -107,7 +107,7 @@ the FPGA image at 8 kHz):
 | Sound | File | When it plays |
 |---|---|---|
 | Scan | `tos_tricorder_scan.mp3` (first ~4 s) | Each time a function is switched ON (for SW0-SW3 this is also the personality load sound) |
-| Alert | `tos_tricoder_alert.mp3` | On entering the `Err SEL` state (more than one switch up) |
+| Alert | `tos_tricoder_alert.mp3` | On entering `Err SEL` (more than one switch up), and whenever a personality load fails its signature check |
 
 Plug headphones or a speaker into the audio jack (J8). The scan
 sound also plays once at boot as a power-on chirp. The sound plays
