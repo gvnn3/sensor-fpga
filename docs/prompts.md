@@ -6,6 +6,13 @@ chronological order (newest first). Each entry has the date and time
 
 ---
 
+## 27 Jul 2026 07:28:20
+
+> Boot from QSPI so the board runs standalone
+> *(with "keep going until the standalone boot gate passes")*
+
+---
+
 ## 27 Jul 2026 07:05:00
 
 > Update the plan doc with the full session status

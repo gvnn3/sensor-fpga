@@ -17,6 +17,7 @@ or removed at runtime from the FPGA dynamic (partial reconfiguration) region.
 
 # Table of Contents
 
+31. [EXPERIMENT 27 Jul 2026 07:28:20 Standalone QSPI Boot: Bitstream + Bootloader + App, No Host Required](#27-jul-2026-072820) :complete:
 30. [EXPERIMENT 27 Jul 2026 06:56:01 Switches Command the Hardware: Personality Loads, Boot Chirp, Mismatch Alert](#27-jul-2026-065601) :complete:
 29. [EXPERIMENT 26 Jul 2026 22:48:43 Test-Mode UI: 15 Switch Functions, 7-Seg Readouts, Tricorder Sounds](#26-jul-2026-224843) :complete:
 28. [EXPERIMENT 26 Jul 2026 22:40:00 ILA Verdict on XIP: Bus Clocks Perfectly, Flash Never Answers — Case Closed](#26-jul-2026-224000) :complete:
@@ -47,6 +48,84 @@ or removed at runtime from the FPGA dynamic (partial reconfiguration) region.
 3. [EXPERIMENT  4 Jul 2026 07:34:03 OHWR Cores for the Dynamic Region of This Host (Alveo U250)](#4-jul-2026-073403) :complete:
 2. [EXPERIMENT  4 Jul 2026 07:26:08 Vitis Libraries Suitability for the FPGA Dynamic Region](#4-jul-2026-072608) :complete:
 1. [EXPERIMENT  4 Jul 2026 07:20:01 Repository and Notebook Initialization](#4-jul-2026-072001) :complete:
+
+---
+
+# EXPERIMENT 27 Jul 2026 07:28:20 Standalone QSPI Boot: Bitstream + Bootloader + App, No Host Required :complete:
+
+## 1. Hypothesis
+
+Can the board run with no host at all: FPGA configured from QSPI at
+power-on, and the FreeRTOS app loaded from flash by a bootloader baked
+into the bitstream — completing the standalone instrument?
+
+## 2. How
+
+- **Config side:** `full_a.bit` written to flash 0x0 via `write_cfgmem
+  -loadbit` (proper config formatting; the old raw `-loaddata` placement
+  would not boot), `BITSTREAM.CONFIG.SPI_BUSWIDTH 4` + `CONFIGRATE 33`.
+  Two MCS images now: `boot.mcs` (bitstream, standard bit order) and
+  `slots.mcs` (data slots, `-disablebitswap` per entry 25) — write_cfgmem
+  flags are global, so they cannot share a file; `program_flash.tcl`
+  programs both ranges.
+- **Software side:** `sw/boot` — a 1.4 KB bootloader linked into the LMB
+  BRAM and baked into the bitstream post-route with `updatemem` (MMI from
+  `write_mem_info`, proc `u_static/static_region_i/microblaze_0`). It
+  waits for DDR2 calibration, quad-reads a scatter-load image from flash
+  0xD00000 (`tools/mkbootimg.py` packs the app ELF's PT_LOAD segments:
+  magic/nseg/entry + {addr,len,data}...), loads each segment — the app's
+  LMB vectors overwrite the bootloader's own, by design — and jumps.
+- Iteration trick worth keeping: boot.c changes need only mb-gcc +
+  standalone `updatemem` on the kept `full_a_raw.bit` (~1 min), no
+  Vivado flow re-run.
+
+### Key commands
+
+```bash
+vivado -mode batch -source hw/dfx/build_dfx.tcl      # raw bit + updatemem
+vitis -s sw/scripts/build_rtos.py
+vivado -mode batch -source hw/scripts/build_flash.tcl # boot.mcs + slots.mcs
+vivado -mode batch -source hw/scripts/program_flash.tcl
+# gate: configure ONLY, no ELF download:
+vivado -mode batch -source hw/scripts/program.tcl -tclargs build/dfx/full_a.bit
+```
+
+## 3. Observations
+
+- **Gate (twice, consecutively): configure-only → `BOOT: qspi
+  bootloader` → `BOOT: launching app` → full tricorder** (banner, JEDEC
+  01 20 18, QE persistent, scheduler ticks, display banner
+  register-exact, boot chirp fired). Zero software over JTAG.
+- Boot image: 3 PT_LOAD segments, 42,906 payload bytes, entry 0x0
+  (vectors → crt); flash 0xD00000–0xD0A7BF.
+- One transient: the first bootloader run after a flash-programming
+  session read 0xEEEEEEEE (flash-silent fill) — consistent with the
+  cfgmem proxy leaving the S25FL128S in a latched read mode; clean
+  reconfigurations since then boot correctly every time.
+
+## 4. Data analysis
+
+The instrument no longer needs this workstation: flash holds the
+bitstream (with the bootloader inside), the app, and all four
+personalities — power alone brings up the full switch-driven,
+sound-effected tricorder. The two-MCS split is the load-bearing subtle
+bit: config data and slot data need opposite bit-ordering treatments,
+which one write_cfgmem invocation cannot express. What remains for true
+power-on proof is physical: **JP1 must be moved to QSPI** (currently
+JTAG mode) and the power toggled — George's hands; the JTAG
+configure-only gate exercises every other link in the chain.
+
+## 5. Ideas for future experiments
+
+- George: move JP1 to QSPI, power-cycle, expect the chirp and banner
+  with no cable. (JTAG still works for development regardless.)
+- Harden boot.c against the post-programming flash state: issue a mode
+  reset (0xFF continuous-read exit + 0xF0 software reset) before the
+  first real read.
+- Boot time budget: config at x4/33 MHz ≈ 0.5 s + app load ≈ 1.5 s;
+  measure for the notebook once the jumper is set.
+- CRC32 over the boot image (mkbootimg already has the layout to carry
+  it).
 
 ---
 

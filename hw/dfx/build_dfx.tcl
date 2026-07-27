@@ -55,8 +55,16 @@ write_checkpoint -force $out/config_a_routed.dcp
 # Compressed bitstreams (MFWR frames): smaller partials load
 # proportionally faster through the DMA->ICAPE2 path
 set_property BITSTREAM.GENERAL.COMPRESS TRUE [current_design]
-write_bitstream -force -no_partial_bitfile $out/full_a.bit
-write_debug_probes -force $out/full_a.ltx
+# QSPI boot: quad-lane config at 33 MHz from the flash at power-on
+set_property BITSTREAM.CONFIG.SPI_BUSWIDTH 4 [current_design]
+set_property BITSTREAM.CONFIG.CONFIGRATE 33 [current_design]
+write_bitstream -force -no_partial_bitfile $out/full_a_raw.bit
+# Bake the QSPI bootloader into the LMB BRAM so the CPU boots standalone
+write_mem_info -force $out/full_a.mmi
+exec updatemem -force -meminfo $out/full_a.mmi -data sw/boot/boot.elf \
+    -proc u_static/static_region_i/microblaze_0 \
+    -bit $out/full_a_raw.bit -out $out/full_a.bit
+puts "DFX: bootloader baked into full_a.bit"
 write_bitstream -force -bin_file -cell u_rm $out/rm_a_partial.bit
 
 # --- Carve out the RM, lock static, swap in each remaining RM -------------

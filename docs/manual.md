@@ -112,3 +112,12 @@ the FPGA image at 8 kHz):
 Plug headphones or a speaker into the audio jack (J8). The scan
 sound also plays once at boot as a power-on chirp. The sound plays
 once per trigger; flipping the same switch off and on again replays it.
+
+## Standalone operation
+
+With jumper **JP1 set to QSPI**, the board is fully standalone: at
+power-on the FPGA configures itself from flash and a built-in bootloader
+loads the tricorder software — the boot chirp and `trICordr` banner
+appear with no computer attached. (With JP1 on JTAG, use
+`hw/scripts/run_rtos_dfx.xsdb` or configure `build/dfx/full_a.bit` —
+the bootloader does the rest either way.)

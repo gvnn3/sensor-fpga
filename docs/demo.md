@@ -40,10 +40,12 @@ Interleaved throughout, uninterrupted by the swaps:
 1. Nexys A7-100T connected by USB (one cable: JTAG + UART). Check:
    `lsusb | grep 0403:6010` — the FT2232 must be present. No udev
    installer or sudo is needed (the `plugdev` group covers it).
-2. Power switch on. Partials live in the QSPI flash (slots written by
-   `hw/scripts/program_flash.tcl`); the demo pulls personalities from
-   flash and falls back to JTAG-staged DDR copies automatically if the
-   flash slots are missing or stale.
+2. Power switch on. Everything lives in the QSPI flash (written by
+   `hw/scripts/program_flash.tcl`): the bitstream with its built-in
+   bootloader, the app, and the personality slots. With jumper JP1 on
+   QSPI the board boots the whole demo standalone at power-on; with JP1
+   on JTAG, run the xsdb script below (it also stages DDR fallback
+   copies of the partials).
 3. Build artifacts present (all committed scripts, rebuild takes
    ~45 min total if `build/` is empty):
 
