@@ -6,6 +6,12 @@ chronological order (newest first). Each entry has the date and time
 
 ---
 
+## 27 Jul 2026 07:40:00
+
+> I moved JP1 to QSPI, power cycled, and it works
+
+---
+
 ## 27 Jul 2026 07:28:20
 
 > Boot from QSPI so the board runs standalone

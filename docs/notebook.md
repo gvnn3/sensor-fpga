@@ -110,10 +110,12 @@ bitstream (with the bootloader inside), the app, and all four
 personalities — power alone brings up the full switch-driven,
 sound-effected tricorder. The two-MCS split is the load-bearing subtle
 bit: config data and slot data need opposite bit-ordering treatments,
-which one write_cfgmem invocation cannot express. What remains for true
-power-on proof is physical: **JP1 must be moved to QSPI** (currently
-JTAG mode) and the power toggled — George's hands; the JTAG
-configure-only gate exercises every other link in the chain.
+which one write_cfgmem invocation cannot express. What remained for true
+power-on proof was physical: JP1 to QSPI and a power cycle.
+
+*Revision (27 Jul 2026 07:40, George):* **JP1 moved to QSPI, power
+cycled — it works.** The board boots the full tricorder from flash with
+no host attached. Every gate in this line of work is now closed.
 
 ## 5. Ideas for future experiments
 
