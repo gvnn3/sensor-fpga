@@ -1,6 +1,8 @@
 # Tricorder on the Nexys A7-100T — Project Plan
 
-Status: proposed (branch `gnn-a7-tricorder`, 24 Jul 2026). Supersedes the
+Status: **executed** — planned 24 Jul 2026, all milestones and the
+standalone-boot line closed 27 Jul 2026 (§5); the board runs the full
+instrument from flash with no host. Supersedes the
 Arty A7-100T pin plan (notebook entries 8–10) after the board change to the
 **Digilent Nexys A7-100T** (XC7A100T-1CSG324C — same die/package/speed grade
 as the Arty, so all fabric-resource math carries over). A Nexys A7 is
@@ -262,12 +264,22 @@ coherent pre-synthesis; final display gate was register-exact
 (`trICordr` = 0x5C505E50/0x78503039). `docs/manual.md` is the user
 manual; `docs/demo.md` stays the runbook.
 
-**Standing next steps:** quad-command read speedup if flash swaps ever
-need sub-second (interrupt-driven SPI ~1 s, or XIP with a different
-memory-vendor table + the ILA method); QSPI full self-boot (golden image
-already in slot 0); switch debounce; the sensor harness — SW1 becomes a
-live rangefinder with zero further software once the piezo chain is
-wired.
+**Standalone boot (entry 31, closes the line):** the flash now carries
+the complete instrument — bitstream at 0x0 (`-loadbit`, x4 config at
+33 MHz) with a 1.4 KB bootloader baked into the LMB BRAM via updatemem,
+the app as a scatter-load image at 0xD00000 (`tools/mkbootimg.py`), and
+the personality slots. Two MCS images (config data and slot data need
+opposite bit-order treatment). Gated twice by JTAG configure-only, then
+**confirmed physically: JP1 to QSPI, power cycle, the tricorder boots
+with no host attached.**
+
+**Standing next steps:** the sensor harness — SW1 becomes a live
+rangefinder with zero further software once the piezo chain is wired;
+JA I2C harness lights up the SW5 scan; the 6-mic array completes the
+beamformer. Software polish: bootloader flash-mode reset (one transient
+after cfgmem programming sessions), boot-image CRC32, switch debounce,
+sub-second flash reads (interrupt-driven SPI or XIP with another
+memory-vendor table + the committed ILA method).
 
 ## 6. Standing risks
 
