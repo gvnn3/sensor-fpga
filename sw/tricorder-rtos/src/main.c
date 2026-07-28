@@ -86,6 +86,11 @@ static const struct rm_desc rms[] = {
 
 /* QSPI slot manifest (generated with the flash image): DMA reads the
  * partial straight out of the XIP window — no DDR staging at all. */
+const char *ui_rm_name(int id)
+{
+    return (id >= 0 && id < 4) ? rms[id].name : "NONE";
+}
+
 static const struct { u32 addr, len; } flash_slots[] = {
     { QSPI_XIP_BASE + SLOT_PDM_OFF,   SLOT_PDM_LEN },
     { QSPI_XIP_BASE + SLOT_SONAR_OFF, SLOT_SONAR_LEN },
@@ -239,6 +244,7 @@ __attribute__((optimize("O2"))) static void dfx_task(void *arg)
         const unsigned slot = (unsigned)req;
         const struct rm_desc *rm = &rms[slot];
         u32 src, len;
+        const int prev_rm = ui_live.cur_rm;
         ui_live.cur_rm = -1;
         if (flash_ok) {
             src = FLASH_BOUNCE;
@@ -295,6 +301,17 @@ __attribute__((optimize("O2"))) static void dfx_task(void *arg)
             ui_live.last_swap_us = (t1 - t0) / 100u;
             ui_live.cur_rm = req;
         }
+        /* Publish the swap record for net_task (attempted swaps too:
+         * a mismatch is exactly what telemetry should carry). */
+        ui_live.dfx_from = prev_rm;
+        ui_live.dfx_to   = req;
+        ui_live.dfx_from_len = (prev_rm >= 0)
+            ? (flash_ok ? flash_slots[prev_rm].len : *rms[prev_rm].len)
+            : 0u;
+        ui_live.dfx_to_len = len;
+        ui_live.dfx_us = (t1 - t0) / 100u;
+        ui_live.dfx_ok = (sig == rm->sig);
+        ui_live.dfx_seq++;
         xil_printf("DFX: RM-%s live in %u us (flash read %u us), sig=%08x %s\r\n",
                    rm->name, (unsigned)((t1 - t0) / 100u),
                    (unsigned)(t_spi / 100u), sig,

@@ -20,6 +20,16 @@ struct ui_live {
     volatile int evt_sw;
     volatile unsigned int evt_mask;   /* raw switch bits at the event */
     volatile int cur_rm;        /* loaded personality, -1 while swapping */
+    /* DFX swap events: dfx_task fills the record then increments dfx_seq;
+     * net_task emits one type=dfx UDP frame per new seq (same single-
+     * writer pattern as evt_*). Ids use the req_rm encoding above. */
+    volatile unsigned int dfx_seq;
+    volatile int dfx_from;            /* RM loaded before the swap        */
+    volatile int dfx_to;              /* RM requested                     */
+    volatile unsigned int dfx_from_len;  /* partial sizes, bytes; 0 = n/a */
+    volatile unsigned int dfx_to_len;
+    volatile unsigned int dfx_us;     /* decouple->sig ICAP stream time   */
+    volatile int dfx_ok;              /* 1 signature matched, 0 mismatch  */
     volatile int      temp_centi;   /* ADT7420, centi-C (S4) */
     volatile unsigned swaps;        /* completed DFX swaps (S7) */
     volatile unsigned last_swap_us; /* last swap duration, us; 0 = none (S13) */
@@ -35,5 +45,6 @@ void ui_task(void *arg);
 
 /* Tag for switch id 0..15 ("PdM", "Snr", ...); "none"/"error" for -1/-2 */
 const char *ui_fn_name(int id);
+const char *ui_rm_name(int id);   /* req_rm encoding; -1 -> "NONE" */
 
 #endif /* UI_H */

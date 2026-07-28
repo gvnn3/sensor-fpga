@@ -285,7 +285,7 @@ static s32 du(enum sensor_id id, s32 v, s32 lo, s32 hi)
 {
     if (sensors.st[id] == SENS_PRESENT && v >= TS_NA_U && v <= TS_ABSENT_U)
         return v;
-    return su(id, v, lo, hi);
+    return su_floor(id, v, lo, hi);   /* hr floor 30: below = no beat  */
 }
 
 /* Class F (fabric measurement) — capability gate first (spec §1.4). */
@@ -404,7 +404,7 @@ void net_send_telemetry(void)
     p = kv_i(p, "bme_temp_cc",  ss(SENS_BME688, sensors.bme_temp_cc, -4000, 8500));
     p = kv_i(p, "bme_rh_pct",   su(SENS_BME688, sensors.bme_rh_pct,      0, 100));
     p = kv_i(p, "bme_pres_pa",  su_floor(SENS_BME688, sensors.bme_pres_pa, 30000, 110000));
-    p = kv_i(p, "bme_gas_ohm",  su(SENS_BME688, sensors.bme_gas_ohm,    10, 50000000));
+    p = kv_i(p, "bme_gas_ohm",  su_floor(SENS_BME688, sensors.bme_gas_ohm, 10, 50000000));
     p = kv_i(p, "co2_ppm",      su(SENS_SCD41,  sensors.co2_ppm,         0, 40000));
     p = kv_i(p, "scd_temp_cc",  ss(SENS_SCD41,  sensors.scd_temp_cc, -1000, 6000));
     p = kv_i(p, "scd_rh_pct",   su(SENS_SCD41,  sensors.scd_rh_pct,      0, 100));
@@ -453,7 +453,7 @@ void net_send_telemetry(void)
     p = kv_i(p, "sipm_thresh_mv",cu(CAP_SIPM, sensors.sipm_thresh_mv, 0, 3300));
     p = kv_i(p, "afe_gain_db",   cs(CAP_AFE, sensors.afe_gain_db,    -5, 48));
     p = kv_i(p, "afe_hilo",      cu(CAP_AFE, sensors.afe_hilo,        0, 1));
-    p = kv_i(p, "sonar_range_mm",   fu(CAP_SONAR, SENS_PIEZO, sensors.sonar_range_mm,  30, 4000));
+    p = kv_i(p, "sonar_range_mm",   fu_floor(CAP_SONAR, SENS_PIEZO, sensors.sonar_range_mm, 30, 4000));
     p = kv_i(p, "sonar_tof_us",     fu(CAP_SONAR, SENS_PIEZO, sensors.sonar_tof_us,     0, 30000));
     p = kv_i(p, "sonar_snr_db",     fs(CAP_SONAR, SENS_PIEZO, sensors.sonar_snr_db,   -20, 60));
     p = kv_i(p, "sonar_bursts_cnt", cu(CAP_SONAR, sensors.sonar_bursts_cnt, 0, 2147483647)); /* F8 */
