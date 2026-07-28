@@ -112,6 +112,10 @@ DFX: RM-PDM live in 1040 us, sig=9D3A0001 OK
   compiled in)
 - JTAG-triggered swap from the new flash slots: **RM-PDM live in
   1040 µs**, signature verified
+- **Cold power cycle** (user, JP1 on QSPI): full standalone boot — config
+  from flash, app from flash, DHCP lease reacquired, **16 frames / 20 s**
+  on the listener with live `temp_cc=3306`. QE survived the power cycle
+  (non-volatile CR1 bit, as expected)
 
 ## 4. Data analysis
 
@@ -133,8 +137,6 @@ in that order.
 - Teach boot.c to check/set QE itself (single-mode WRR before first quad
   read) — removes the post-programming JTAG step entirely
 - Add QE restore pass to program_flash.tcl via JTAG-poked SPI commands
-- Physical power-cycle confirmation of the full cold boot (config from
-  flash + app from flash) when at the board
 - Background-stage flash partials into DDR at boot so first swap skips
   the 5.9 s CPU-bound quad read
 

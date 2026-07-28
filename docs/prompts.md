@@ -6,6 +6,12 @@ chronological order (newest first). Each entry has the date and time
 
 ---
 
+## 28 Jul 2026 00:20:00
+
+> I power cycled the board, verify the telemetry still flows
+
+---
+
 ## 27 Jul 2026 23:59:00
 
 > keep going until the flash boot passes the listener gate
