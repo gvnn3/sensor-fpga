@@ -17,6 +17,8 @@ or removed at runtime from the FPGA dynamic (partial reconfiguration) region.
 
 # Table of Contents
 
+32. [EXPERIMENT 27 Jul 2026 20:24:50 Ethernet Bring-Up: Telemetry on the Wire, DHCP Still Silent](#27-jul-2026-202450) :in_progress:
+
 31. [EXPERIMENT 27 Jul 2026 07:28:20 Standalone QSPI Boot: Bitstream + Bootloader + App, No Host Required](#27-jul-2026-072820) :complete:
 30. [EXPERIMENT 27 Jul 2026 06:56:01 Switches Command the Hardware: Personality Loads, Boot Chirp, Mismatch Alert](#27-jul-2026-065601) :complete:
 29. [EXPERIMENT 26 Jul 2026 22:48:43 Test-Mode UI: 15 Switch Functions, 7-Seg Readouts, Tricorder Sounds](#26-jul-2026-224843) :complete:
@@ -48,6 +50,96 @@ or removed at runtime from the FPGA dynamic (partial reconfiguration) region.
 3. [EXPERIMENT  4 Jul 2026 07:34:03 OHWR Cores for the Dynamic Region of This Host (Alveo U250)](#4-jul-2026-073403) :complete:
 2. [EXPERIMENT  4 Jul 2026 07:26:08 Vitis Libraries Suitability for the FPGA Dynamic Region](#4-jul-2026-072608) :complete:
 1. [EXPERIMENT  4 Jul 2026 07:20:01 Repository and Notebook Initialization](#4-jul-2026-072001) :complete:
+
+---
+
+# EXPERIMENT 27 Jul 2026 20:24:50 Ethernet Bring-Up: Telemetry on the Wire, DHCP Still Silent :in_progress:
+
+## 1. Hypothesis
+
+Can the tricorder push telemetry off-board over the Nexys A7's RMII
+Ethernet, obtain an address by DHCP on a live network, and show that
+address on the 7-seg (SW15), sounding the alert when there is no lease?
+
+## 2. How
+
+- **Equipment:** Nexys A7-100T, cable into a live DHCP network; this host
+  on the same LAN at 192.168.1.112/24. No root here, so no tcpdump.
+- **Design (ultracode workflow: spec agent, 3 implementers, verifier):**
+  `docs/ethernet-spec.md` (854 lines) froze every cross-implementer
+  interface; then `hw/rtl/rmii_shim.v` (MII<->RMII, 25 MHz nibbles vs
+  50 MHz dibits, CRS_DV framing), `hw/constraints/ethernet.xdc` (12 PHY
+  pins from the Digilent master), `sw/tricorder-rtos/src/net.{c,h}`
+  (EmacLite driver, ARP, ICMP, UDP telemetry - no lwIP). The verifier
+  caught the two integration gaps (top wrapper, main.c) and a missing
+  `create_generated_clock`; all fixed.
+- **Integration:** axi_ethernetlite at 0x40E00000 (polled, ping-pong
+  off), axi_gpio_eth PHY reset at 0x40E10000, clk_wiz 50 MHz output,
+  shim + REFCLK ODDR in the top wrapper. DHCP client (DISCOVER/OFFER/
+  REQUEST/ACK) added to net.c; `ui_live.ip` drives the new SW15 display.
+
+### Key commands
+
+```bash
+make -C hw static dfx && make -C hw rtos
+xsdb hw/scripts/run_elf.xsdb build/static_region.bit .../tricorder_rtos.elf
+nc -ulp 5001            # telemetry listener on this host
+```
+
+## 3. Observations
+
+- **Telemetry reaches this host over real Ethernet:**
+  `seq=13 uptime=78 temp_cc=3331 i2c=0 rm=3 swaps=0 ...` captured with
+  `nc -ulp 5001`. The datapath MAC -> shim -> PHY -> switch -> host works.
+- PHY: ID 0007 C0F1 @ addr 1; autoneg completes; **BMSR 0x782D, ANLPAR
+  0xC1E1, reg31 0x1058 = 100BASE-TX full duplex**; internal loopback
+  self-test **60/60 bytes OK**, proving the shim's TX serializer and RX
+  deserializer both correct.
+- **Bug found and fixed:** the PHY stayed in internal loopback after the
+  self-test - every frame came back to us and nothing reached the wire
+  (the "received ARP" was our own gratuitous ARP). net_init now verifies
+  BMCR bit 14 is clear and retries. This was the whole reason the first
+  hours of DHCP attempts saw no reply.
+- Counters (`net_stats` read live over JTAG) are the workhorse
+  instrument: rx_frames / rx_arp / rx_icmp / rx_dropped / tx_frames.
+  Present state: RX from the wire works (host ARP requests match,
+  rx_arp increments), TX works (telemetry lands), **but no unicast frame
+  has ever been received** - rx_icmp stays 0, ping gets no reply, and no
+  DHCP OFFER arrives.
+- MAC-filter programming is the prime suspect for the unicast gap. Two
+  variants tried and reverted: adding `TX_LEN=6` per PG135 killed RX
+  entirely (rx_frames 0); PROG-bit-only polling never self-clears and
+  hangs init. The committed form (PROG|GO, poll GO) is the one that
+  leaves broadcast RX/TX working.
+
+## 4. Data analysis
+
+Ethernet is two thirds delivered: the tricorder now streams live sensor
+telemetry onto a real network, which was the actual request, and the
+hardware datapath is proven in both directions by an in-PHY loopback and
+by frames arriving at this host. What remains is a MAC-address filter
+question, not a datapath question: EmacLite accepts broadcast but no
+unicast, which blocks ping replies from being useful and - if this
+network's DHCP server unicasts its OFFER - blocks the lease. The
+loopback-stuck discovery is the transferable lesson: a PHY left in
+internal loopback looks *exactly* like a working link (link up, frames
+"received") while nothing reaches the wire; always verify BMCR bit 14
+after any loopback self-test.
+
+## 5. Ideas for future experiments
+
+- Resolve the unicast filter: compare against `xemaclite.c`
+  `XEmacLite_SetMacAddress` on this install (the sequence that works
+  here differs from the PG135 text), or set the EmacLite promiscuous bit
+  (RX_CTRL bit 3 in some configurations) and re-test ping.
+- If the OFFER is being broadcast and simply not parsed, log every RX
+  frame's ethertype/ports for a few seconds - the parser filter
+  (`rxf[36..37] == 68`, `flen >= 42+240`) is unverified against a real
+  OFFER.
+- Static-IP mode is a usable fallback today: set our_ip and have_ip=1 and
+  the board answers on the LAN with telemetry streaming.
+- SW15 currently shows `nO IP` with the alert sound, which is correct
+  behaviour for the present state.
 
 ---
 

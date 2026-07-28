@@ -16,6 +16,7 @@
 #include "xil_printf.h"
 #include "xgpio.h"
 #include "ui.h"
+#include "net.h"
 #include "slots.h"
 
 #define EXT_IIC_BASE  XPAR_AXI_IIC_0_BASEADDR /* JA harness bus */
@@ -378,6 +379,7 @@ int main(void)
     xTaskCreate(sensors_task, "sens", 1024, NULL, tskIDLE_PRIORITY + 2, NULL);
     xTaskCreate(dfx_task, "dfx", 1024, NULL, tskIDLE_PRIORITY + 3, NULL);
     xTaskCreate(ui_task, "ui", 1024, NULL, tskIDLE_PRIORITY + 1, NULL);
+    xTaskCreate(net_task, "net", 1024, NULL, tskIDLE_PRIORITY + 1, NULL);
 
     vTaskStartScheduler();
 

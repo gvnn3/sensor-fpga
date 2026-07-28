@@ -10,8 +10,9 @@
  * rightmost (AN0).  Within a byte bit0=CA .. bit6=CG, bit7=DP,
  * ACTIVE-HIGH here (the RTL inverts for the board's active-low pins).
  *
- * SW15 is reserved and ignored.  0 switches -> idle banner, exactly one
- * -> that function's readout, more than one -> "Err SEL".
+ * SW15 shows the DHCP address (alternating octet pairs; "nO IP" + alert
+ * when there is no lease).  0 switches -> idle banner, exactly one ->
+ * that function's readout, more than one -> "Err SEL".
  */
 
 #include "FreeRTOS.h"
@@ -28,7 +29,7 @@
 #define DISP_LO  (*(volatile u32 *)0x40040000u)
 #define DISP_HI  (*(volatile u32 *)0x40040008u)
 
-#define SW_MASK  0x7FFFu   /* SW0..SW14; SW15 reserved */
+#define SW_MASK  0xFFFFu   /* SW0..SW14 functions + SW15 = IP display */
 
 /* S14 "uEr" readout: build/version ID, bump on UI protocol changes */
 static const char build_id[] = "1.00";
@@ -244,6 +245,31 @@ static void val_swap_us(char *out)  /* S13: last swap in us, 0 = none yet */
         fmt_dec(out, (long)ui_live.last_swap_us);
 }
 
+static void val_ip(char *out)       /* S15: DHCP address, two halves */
+{
+    unsigned int ip = ui_live.ip;
+    char *p = out;
+
+    if (ip == 0) {
+        const char *m = "nO IP";
+        while (*m)
+            *p++ = *m++;
+        *p = '\0';
+        return;
+    }
+    if ((xTaskGetTickCount() / pdMS_TO_TICKS(2000)) & 1) {
+        p = fmt_dec(p, (long)((ip >> 8) & 0xFF));
+        *p++ = '.';
+        p = fmt_dec(p, (long)(ip & 0xFF));
+    } else {
+        p = fmt_dec(p, (long)(ip >> 24));
+        *p++ = '.';
+        p = fmt_dec(p, (long)((ip >> 16) & 0xFF));
+        *p++ = '.';
+    }
+    *p = '\0';
+}
+
 static void val_build(char *out)    /* S14: static build/version ID */
 {
     const char *p = build_id;
@@ -259,7 +285,7 @@ static void val_build(char *out)    /* S14: static build/version ID */
 static const struct ui_fn {
     const char *tag;
     void (*val)(char *out);
-} ui_fns[15] = {
+} ui_fns[16] = {
     { "PdM",  val_rm_pdm },  /* S0  loads the PDM personality */
     { "Snr",  val_rm_snr },  /* S1  loads the sonar personality */
     { "HELA", val_rm_a },    /* S2  loads Hello-A */
@@ -275,6 +301,7 @@ static const struct ui_fn {
     { "PEA",  val_peak },    /* S12 sonar peak (live when sonar loaded) */
     { "tSWP", val_swap_us }, /* S13 last swap time, us (LIVE) */
     { "uEr",  val_build },   /* S14 build/version ID */
+    { "IP",   val_ip },      /* S15 DHCP address / nO IP */
 };
 
 void ui_task(void *arg)
@@ -305,15 +332,18 @@ void ui_task(void *arg)
         } else {
             while (!(sw & (1u << id)))
                 id++;
-            if (id != prev_id) {           /* new function on: scan sound */
+            if (id != prev_id) {           /* new function on */
                 taskENTER_CRITICAL();
-                UI_AUDIO = UI_AUDIO ^ 1u;
+                /* SW15 with no lease: that IS the error - alert instead */
+                UI_AUDIO = UI_AUDIO ^ ((id == 15 && ui_live.ip == 0) ? 2u : 1u);
                 taskEXIT_CRITICAL();
             }
             prev_id = id;
             /* S0-S3 request their DFX personality (ui->dfx handoff) */
-            static const int sw2rm[4] = { 0, 1, 3, 2 }; /* HELA=A(3), HELB=B(2) */
-            ui_live.req_rm = (id < 4) ? sw2rm[id] : ui_live.req_rm;
+            {
+                static const int sw2rm[4] = { 0, 1, 3, 2 }; /* HELA=A(3) HELB=B(2) */
+                ui_live.req_rm = (id < 4) ? sw2rm[id] : ui_live.req_rm;
+            }
             ui_fns[id].val(val);
             compose(line, ui_fns[id].tag, val);
             ui_show(line);

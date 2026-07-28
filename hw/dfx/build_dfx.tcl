@@ -31,15 +31,34 @@ read_verilog build/m2_proj/m2_static.gen/sources_1/bd/static_region/hdl/static_r
 read_verilog hw/rtl/tricorder_m5_top.v
 read_verilog hw/rtl/sevenseg_scan.v
 read_verilog hw/rtl/audio_player.v
+read_verilog hw/rtl/rmii_shim.v
 read_verilog hw/dfx/rm_slot_bb.v
 read_xdc hw/constraints/m2-static-nexys-a7.xdc
 read_xdc hw/constraints/switches-7seg.xdc
+read_xdc hw/constraints/ethernet.xdc
 read_xdc hw/dfx/mic.xdc
 read_xdc hw/dfx/ultra.xdc
 synth_design -top tricorder_m5_top -part $part
 write_checkpoint -force $out/static_synth.dcp
 
 # --- Configuration A: link, floorplan, implement --------------------------
+# Debug core over the shim's mark_debug nets (ethernet bring-up).
+# One net per 1-bit probe port: avoids all PORT_WIDTH juggling.
+set dbg_nets [lsort -dictionary [get_nets -hier -filter {MARK_DEBUG}]]
+if {[llength $dbg_nets] > 0} {
+    create_debug_core u_ila_eth ila
+    set_property C_DATA_DEPTH 8192 [get_debug_cores u_ila_eth]
+    connect_debug_port u_ila_eth/clk \
+        [get_nets -hier -filter {NAME =~ *eth_clk50*} -quiet]
+    set pidx 0
+    foreach n $dbg_nets {
+        if {$pidx > 0} { create_debug_port u_ila_eth probe }
+        connect_debug_port [get_debug_ports u_ila_eth/probe$pidx] $n
+        incr pidx
+    }
+    puts "DFX: ILA over $pidx single-bit probes"
+}
+
 read_checkpoint -cell u_rm $out/rm_a.dcp
 set_property HD.RECONFIGURABLE true [get_cells u_rm]
 read_xdc hw/dfx/pblock_rm.xdc

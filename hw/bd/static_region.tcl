@@ -30,6 +30,8 @@ set_property -dict [list \
     CONFIG.CLKOUT2_REQUESTED_OUT_FREQ {200.000} \
     CONFIG.CLKOUT3_USED {true} \
     CONFIG.CLKOUT3_REQUESTED_OUT_FREQ {20.000} \
+    CONFIG.CLKOUT4_USED {true} \
+    CONFIG.CLKOUT4_REQUESTED_OUT_FREQ {50.000} \
     CONFIG.RESET_TYPE {ACTIVE_LOW} \
     CONFIG.RESET_PORT {resetn} \
 ] $clk_wiz
@@ -285,6 +287,32 @@ apply_bd_automation -rule xilinx.com:bd_rule:axi4 -config { \
 create_bd_port -dir O -from 1 -to 0 audio_ctl
 connect_bd_net [get_bd_ports audio_ctl] [get_bd_pins axi_gpio_5/gpio_io_o]
 
+# Ethernet MAC: axi_ethernetlite (MII, polled v1); the MII<->RMII shim
+# lives in the top wrapper on the 50 MHz clock (clk_out4, also exported)
+set emac [create_bd_cell -type ip -vlnv [ipv axi_ethernetlite] axi_ethernetlite_0]
+set_property -dict [list CONFIG.C_TX_PING_PONG {0} CONFIG.C_RX_PING_PONG {0}] $emac
+apply_bd_automation -rule xilinx.com:bd_rule:axi4 -config { \
+    Clk_master {Auto} Clk_slave {Auto} Clk_xbar {Auto} \
+    Master {/microblaze_0 (Periph)} Slave {/axi_ethernetlite_0/S_AXI} \
+    ddr_seg {Auto} intc_ip {New AXI Interconnect} master_apm {0} \
+} [get_bd_intf_pins axi_ethernetlite_0/S_AXI]
+externalize axi_ethernetlite_0/MII eth_mii
+externalize axi_ethernetlite_0/MDIO eth_mdio_bd
+create_bd_port -dir O eth_clk50
+connect_bd_net [get_bd_ports eth_clk50] [get_bd_pins clk_wiz_0/clk_out4]
+# PHY reset under software control (spec section 9: MAC programmed while
+# PHY held in reset; 25 ms software-timed pulse)
+set gpioe [create_bd_cell -type ip -vlnv [ipv axi_gpio] axi_gpio_eth]
+set_property -dict [list CONFIG.C_GPIO_WIDTH {1} CONFIG.C_ALL_OUTPUTS {1} \
+    CONFIG.C_DOUT_DEFAULT {0x00000000}] $gpioe
+apply_bd_automation -rule xilinx.com:bd_rule:axi4 -config { \
+    Clk_master {Auto} Clk_slave {Auto} Clk_xbar {Auto} \
+    Master {/microblaze_0 (Periph)} Slave {/axi_gpio_eth/S_AXI} \
+    ddr_seg {Auto} intc_ip {New AXI Interconnect} master_apm {0} \
+} [get_bd_intf_pins axi_gpio_eth/S_AXI]
+create_bd_port -dir O -from 0 -to 0 eth_rstn_ctl
+connect_bd_net [get_bd_ports eth_rstn_ctl] [get_bd_pins axi_gpio_eth/gpio_io_o]
+
 # RM clock + reset out to the top-level wrapper
 create_bd_port -dir O -type clk rm_clk
 connect_bd_net [get_bd_ports rm_clk] [get_bd_pins clk_wiz_0/clk_out1]
@@ -302,6 +330,8 @@ set_property offset 0x40020000 [get_bd_addr_segs {microblaze_0/Data/SEG_axi_gpio
 set_property offset 0x40030000 [get_bd_addr_segs {microblaze_0/Data/SEG_axi_gpio_3_Reg}]
 set_property offset 0x40040000 [get_bd_addr_segs {microblaze_0/Data/SEG_axi_gpio_4_Reg}]
 set_property offset 0x40050000 [get_bd_addr_segs {microblaze_0/Data/SEG_axi_gpio_5_Reg}]
+set_property offset 0x40E00000 [get_bd_addr_segs {microblaze_0/Data/SEG_axi_ethernetlite_0_Reg}]
+set_property offset 0x40E10000 [get_bd_addr_segs {microblaze_0/Data/SEG_axi_gpio_eth_Reg}]
 set_property offset 0x41E00000 [get_bd_addr_segs {microblaze_0/Data/SEG_axi_dma_0_Reg}]
 set qreg [get_bd_addr_segs -of_objects [get_bd_addr_spaces microblaze_0/Data] -filter {NAME =~ "*quad_spi*Reg*"}]
 if {[llength $qreg] == 1} { set_property offset 0x44A20000 $qreg }

@@ -14,9 +14,10 @@ make_wrapper -files [get_files static_region.bd] -top -import
 # DFX flow (hw/dfx/build_dfx.tcl) does its own synthesis with rm_slot
 # black-boxed. This build feeds the M4 FreeRTOS gate and exports the XSA.
 add_files -norecurse {hw/rtl/tricorder_m5_top.v hw/rtl/sevenseg_scan.v \
-    hw/rtl/audio_player.v hw/dfx/rm/rm_slot_a.v}
+    hw/rtl/audio_player.v hw/rtl/rmii_shim.v hw/dfx/rm/rm_slot_a.v}
 add_files -fileset constrs_1 {hw/constraints/m2-static-nexys-a7.xdc \
-    hw/constraints/switches-7seg.xdc hw/dfx/mic.xdc hw/dfx/ultra.xdc}
+    hw/constraints/switches-7seg.xdc hw/constraints/ethernet.xdc \
+    hw/dfx/mic.xdc hw/dfx/ultra.xdc}
 set_property top tricorder_m5_top [current_fileset]
 
 launch_runs impl_1 -to_step write_bitstream -jobs 8

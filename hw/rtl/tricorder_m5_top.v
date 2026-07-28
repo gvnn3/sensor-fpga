@@ -27,6 +27,16 @@ module tricorder_m5_top (
     inout  wire        iic_ext_sda_io,
     inout  wire        iic_tmp_scl_io,
     inout  wire        iic_tmp_sda_io,
+    output wire        eth_mdc,
+    inout  wire        eth_mdio,
+    output wire        eth_rstn,
+    input  wire        eth_crsdv,
+    input  wire        eth_rxerr,
+    input  wire [1:0]  eth_rxd,
+    output wire        eth_txen,
+    output wire [1:0]  eth_txd,
+    output wire        eth_refclk,
+    input  wire        eth_intn,
     inout  wire        qspi_dq0,
     inout  wire        qspi_dq1,
     inout  wire        qspi_dq2,
@@ -55,6 +65,12 @@ module tricorder_m5_top (
     wire [31:0] icapw_data;
     wire [0:0]  icapw_go;
     wire        qspi_sck;
+    wire        eth_clk50;
+    wire [0:0]  eth_rstn_ctl;
+    wire        mii_tx_clk, mii_rx_clk, mii_tx_en, mii_rx_dv, mii_rx_er;
+    wire [3:0]  mii_txd, mii_rxd;
+    wire        mii_crs, mii_col;
+    wire        emac_mdc;
     wire [31:0] disp_lo, disp_hi;
     wire [1:0]  audio_ctl;
     wire qspi_io0_i, qspi_io0_o, qspi_io0_t;
@@ -83,6 +99,20 @@ module tricorder_m5_top (
         .iic_ext_sda_io (iic_ext_sda_io),
         .iic_tmp_scl_io (iic_tmp_scl_io),
         .iic_tmp_sda_io (iic_tmp_sda_io),
+        .eth_clk50    (eth_clk50),
+        .eth_rstn_ctl (eth_rstn_ctl),
+        .eth_mii_tx_clk (mii_tx_clk),
+        .eth_mii_txd    (mii_txd),
+        .eth_mii_tx_en  (mii_tx_en),
+        .eth_mii_rx_clk (mii_rx_clk),
+        .eth_mii_rxd    (mii_rxd),
+        .eth_mii_rx_dv  (mii_rx_dv),
+        .eth_mii_rx_er  (mii_rx_er),
+        .eth_mii_crs    (mii_crs),
+        .eth_mii_col    (mii_col),
+        .eth_mii_rst_n  (),
+        .eth_mdio_bd_mdc    (emac_mdc),
+        .eth_mdio_bd_mdio_io(eth_mdio),
         .qspi_io0_i   (qspi_io0_i),
         .qspi_io0_o   (qspi_io0_o),
         .qspi_io0_t   (qspi_io0_t),
@@ -210,6 +240,40 @@ module tricorder_m5_top (
     IOBUF u_qspi_dq2 (.IO(qspi_dq2), .I(qspi_io2_o), .O(qspi_io2_i), .T(qspi_io2_t));
     IOBUF u_qspi_dq3 (.IO(qspi_dq3), .I(qspi_io3_o), .O(qspi_io3_i), .T(qspi_io3_t));
     IOBUF u_qspi_cs  (.IO(qspi_cs),  .I(qspi_ss_o),  .O(qspi_ss_i),  .T(qspi_ss_t));
+
+    // ---- Ethernet: MII<->RMII shim + REFCLK ODDR + MDIO IOBUF ----
+    rmii_shim #(.TX_LOOPBACK(1)) rmii_shim_i (
+        .clk50       (eth_clk50),
+        .rst         (1'b0),
+        .mii_tx_clk  (mii_tx_clk),
+        .mii_rx_clk  (mii_rx_clk),
+        .mii_tx_en   (mii_tx_en),
+        .mii_txd     (mii_txd),
+        .mii_rx_dv   (mii_rx_dv),
+        .mii_rxd     (mii_rxd),
+        .mii_rx_er   (mii_rx_er),
+        .mii_crs     (mii_crs),
+        .mii_col     (mii_col),
+        .rmii_tx_en  (eth_txen),
+        .rmii_txd    (eth_txd),
+        .rmii_crs_dv (eth_crsdv),
+        .rmii_rxd    (eth_rxd),
+        .rmii_rx_er  (eth_rxerr)
+    );
+
+    ODDR #(.DDR_CLK_EDGE("OPPOSITE_EDGE"), .INIT(1'b0), .SRTYPE("SYNC"))
+    u_eth_refclk (
+        .Q  (eth_refclk),
+        .C  (eth_clk50),
+        .CE (1'b1),
+        .D1 (1'b1),
+        .D2 (1'b0),
+        .R  (1'b0),
+        .S  (1'b0)
+    );
+
+    assign eth_mdc  = emac_mdc;
+    assign eth_rstn = eth_rstn_ctl[0];
 
     STARTUPE2 #(.PROG_USR("FALSE"), .SIM_CCLK_FREQ(0.0)) u_startup (
         .CFGCLK    (),
