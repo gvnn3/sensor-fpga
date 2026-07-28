@@ -98,6 +98,11 @@ type=dfx dfx=2 from=0 from_name=PDM to=1 to_name=SONAR from_bytes=409856 to_byte
   (`SLOT_A_LEN=311452`, `SLOT_PDM_LEN=409856`, `SLOT_SONAR_LEN=371724`)
 - Chained `from`/`to` are correct across events (to of dfx=1 = from of
   dfx=2); `swaps` tracks the lifetime counter
+- **Standalone confirmation:** after QSPI re-flash (bootimg repack only —
+  bitstream and partials unchanged, slots.h stable, QE restored after
+  programming as entry 35 requires), the flash-booted board emitted
+  `type=dfx dfx=1 from=3 ... to_name=PDM swap_us=1039 sig=ok` alongside
+  11 telemetry frames in 20 s
 
 ## 4. Data analysis
 
@@ -115,7 +120,6 @@ were still clamping below-floor values into range (dead code caught by
 
 ## 5. Ideas for future experiments
 
-- Re-flash QSPI so standalone boot carries the dfx frames
 - Aggregate swap statistics key (mean/max swap_us) in the 1 Hz frame
 - Host-side listener that renders swap history as a timeline
 
