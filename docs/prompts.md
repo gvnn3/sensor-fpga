@@ -6,6 +6,12 @@ chronological order (newest first). Each entry has the date and time
 
 ---
 
+## 28 Jul 2026 01:25:00
+
+> Merge to main
+
+---
+
 ## 28 Jul 2026 01:10:00
 
 > Re-flash QSPI so standalone boot carries the dfx frames
