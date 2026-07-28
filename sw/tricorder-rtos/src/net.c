@@ -427,6 +427,68 @@ static void dhcp_rx(u32 flen)
     }
 }
 
+/* Switch-change event frame: same UDP broadcast as telemetry, marked
+ * type=event, carrying the switch number, its function tag, the raw
+ * switch mask, and the state (idle / active / error). Emitted by
+ * net_task within ~10 ms of the flip; ui_task only publishes the record
+ * (single-writer rule for the MAC). */
+static char *kv_s(char *p, const char *k, const char *v)
+{
+    while (*k)
+        *p++ = *k++;
+    *p++ = '=';
+    while (*v)
+        *p++ = *v++;
+    *p++ = '\n';
+    return p;
+}
+
+void net_send_event(unsigned int seq, int sw, unsigned int mask)
+{
+    char *p = (char *)&txf[42];
+    u32 payload_len, iplen, udplen;
+    u16 csum;
+    const char *state = (sw == -2) ? "error" : (sw == -1) ? "idle" : "active";
+
+    p = kv_s(p, "type",   "event");
+    p = kv_u(p, "evt",    seq);
+    p = kv_i(p, "sw",     sw);
+    p = kv_s(p, "name",   ui_fn_name(sw));
+    p = kv_s(p, "state",  state);
+    p = kv_u(p, "mask",   mask);
+    p = kv_u(p, "uptime", (u32)(xTaskGetTickCount() / configTICK_RATE_HZ));
+
+    payload_len = (u32)(p - (char *)&txf[42]);
+    iplen  = 28 + payload_len;
+    udplen = 8 + payload_len;
+
+    eth_header(txf, bcast_mac, 0x0800u);
+    txf[14] = 0x45;
+    txf[15] = 0x00;
+    txf[16] = (u8)(iplen >> 8);
+    txf[17] = (u8)iplen;
+    txf[18] = (u8)(ip_id >> 8);
+    txf[19] = (u8)ip_id;
+    ip_id++;
+    txf[20] = 0x00; txf[21] = 0x00;
+    txf[22] = 64;
+    txf[23] = 0x11;
+    txf[24] = 0x00; txf[25] = 0x00;
+    for (int i = 0; i < 4; i++) {
+        txf[26 + i] = our_ip[i];
+        txf[30 + i] = 0xFF;
+    }
+    csum = inet_csum(&txf[14], 20);
+    txf[24] = (u8)(csum >> 8);
+    txf[25] = (u8)csum;
+    txf[34] = 0x13; txf[35] = 0x89;        /* sport 5001              */
+    txf[36] = 0x13; txf[37] = 0x89;        /* dport 5001              */
+    txf[38] = (u8)(udplen >> 8);
+    txf[39] = (u8)udplen;
+    txf[40] = 0x00; txf[41] = 0x00;        /* UDP csum 0              */
+    (void)emac_send(42 + payload_len);
+}
+
 void net_send_telemetry(void)
 {
     char *p = (char *)&txf[42];            /* payload after headers   */
@@ -434,6 +496,7 @@ void net_send_telemetry(void)
     u16 csum;
 
     /* Payload: frozen keys, order, formats (spec §7.3.1) */
+    p = kv_s(p, "type",    "telemetry");
     p = kv_u(p, "seq",     tele_seq);
     p = kv_u(p, "uptime",  (u32)(xTaskGetTickCount() / configTICK_RATE_HZ));
     p = kv_i(p, "temp_cc", ui_live.temp_centi);
@@ -738,6 +801,14 @@ void net_task(void *arg)
     for (;;) {
         if (up >= 0) {
             net_poll();
+            {   /* switch events: emit one frame per new sequence */
+                static unsigned int evt_seen = 0;
+                unsigned int es = ui_live.evt_seq;
+                if (es != evt_seen) {
+                    evt_seen = es;
+                    net_send_event(es, ui_live.evt_sw, ui_live.evt_mask);
+                }
+            }
             if (++n >= 100) {              /* once per second         */
                 n = 0;
                 static unsigned dhcp_tick = 0;

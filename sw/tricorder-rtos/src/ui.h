@@ -13,6 +13,12 @@
 struct ui_live {
     volatile int req_rm;        /* -1 none, 0 PDM, 1 sonar, 2 B, 3 A */
     volatile unsigned int ip;   /* DHCP lease, host byte order; 0 = none */
+    /* Switch-change events: ui_task increments evt_seq after filling the
+     * record; net_task emits one UDP event frame per new seq (it owns the
+     * MAC). evt_sw: 0..15 selected, -1 none/idle, -2 multi-switch error. */
+    volatile unsigned int evt_seq;
+    volatile int evt_sw;
+    volatile unsigned int evt_mask;   /* raw switch bits at the event */
     volatile int cur_rm;        /* loaded personality, -1 while swapping */
     volatile int      temp_centi;   /* ADT7420, centi-C (S4) */
     volatile unsigned swaps;        /* completed DFX swaps (S7) */
@@ -26,5 +32,8 @@ struct ui_live {
 extern struct ui_live ui_live;
 
 void ui_task(void *arg);
+
+/* Tag for switch id 0..15 ("PdM", "Snr", ...); "none"/"error" for -1/-2 */
+const char *ui_fn_name(int id);
 
 #endif /* UI_H */

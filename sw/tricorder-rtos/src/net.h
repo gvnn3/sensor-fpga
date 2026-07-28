@@ -25,6 +25,7 @@ void net_poll(void);
 /* Build and transmit one telemetry broadcast (spec §7.3). Reads
  * ui_live + xTaskGetTickCount(); safe from any single task.         */
 void net_send_telemetry(void);
+void net_send_event(unsigned int seq, int sw, unsigned int mask);
 
 /* Link state: BMSR bit 2 as last polled by net_poll (cached; net_poll
  * refreshes it at most once per second).                            */

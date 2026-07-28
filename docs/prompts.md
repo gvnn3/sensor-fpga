@@ -49,6 +49,14 @@ chronological order (newest first). Each entry has the date and time
 
 ---
 
+## 27 Jul 2026 21:35:00
+
+> Also add a telemtry packet whenever a switch is thrown, including the error
+> state when multiple switches are thrown.  Indicate the switch number/name in
+> the packet
+
+---
+
 ## 27 Jul 2026 21:20:00
 
 > Start a new branch gnn-tricorder-telemetry and use ultracode to add
