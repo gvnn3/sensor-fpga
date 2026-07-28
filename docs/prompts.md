@@ -49,6 +49,45 @@ chronological order (newest first). Each entry has the date and time
 
 ---
 
+## 27 Jul 2026 21:20:00
+
+> Start a new branch gnn-tricorder-telemetry and use ultracode to add
+> telemetry for all the sensors planned for the board.  When no data is
+> present send a constant value that is outside the range of the sensor
+> (-1, etc.)
+
+---
+
+## 27 Jul 2026 21:10:00
+
+> Merge to main
+
+---
+
+## 27 Jul 2026 20:30:00
+
+> Try the promiscuous mode fix and retest ping
+> / keep going until it gets an IP
+
+---
+
+## 27 Jul 2026 08:50:00
+
+> There is an ethernet cable plugged in, this can be used for testing, it is
+> on a DHCP capable network.  Keep going until the system gets an IP.  Add a
+> switch to display the IP address on the 7 SEG display.  If no IP play the
+> error sound and show "NO IP"
+
+---
+
+## 27 Jul 2026 08:30:00
+
+> Create a new branch gnn-tricorder-ethernet and integrate an ethernet part
+> into the system that can be used to get telemtry and other data our of the
+> tricorder.  Use ultracode to create the spec and the code.
+
+---
+
 ## 27 Jul 2026 07:05:00
 
 > Update the plan doc with the full session status
