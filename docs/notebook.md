@@ -17,6 +17,7 @@ or removed at runtime from the FPGA dynamic (partial reconfiguration) region.
 
 # Table of Contents
 
+36. [EXPERIMENT 28 Jul 2026 01:00:00 DFX Swap Telemetry: From/To Personality, Partial Sizes, Swap Time on the Wire](#28-jul-2026-010000) :complete:
 35. [EXPERIMENT 27 Jul 2026 23:59:00 QSPI Re-Flash: Programmer Clears QE, Stale Bitstream Kills TX, Fresh DFX Build Fixes Both](#27-jul-2026-235900) :complete:
 34. [EXPERIMENT 27 Jul 2026 22:45:00 Full-Schema Sensor Telemetry: Two AXI IIC Driver Bugs Between the Code and the Wire](#27-jul-2026-224500) :complete:
 33. [EXPERIMENT 27 Jul 2026 21:05:00 DHCP Lease Acquired: REFCLK Phase Was the Bug](#27-jul-2026-210500) :complete:
@@ -53,6 +54,70 @@ or removed at runtime from the FPGA dynamic (partial reconfiguration) region.
 3. [EXPERIMENT  4 Jul 2026 07:34:03 OHWR Cores for the Dynamic Region of This Host (Alveo U250)](#4-jul-2026-073403) :complete:
 2. [EXPERIMENT  4 Jul 2026 07:26:08 Vitis Libraries Suitability for the FPGA Dynamic Region](#4-jul-2026-072608) :complete:
 1. [EXPERIMENT  4 Jul 2026 07:20:01 Repository and Notebook Initialization](#4-jul-2026-072001) :complete:
+
+---
+
+# EXPERIMENT 28 Jul 2026 01:00:00 DFX Swap Telemetry: From/To Personality, Partial Sizes, Swap Time on the Wire :complete:
+
+## 1. Hypothesis
+
+Can each DFX personality swap emit a UDP event frame carrying the RM
+switched from and to, the byte size of each partial bitstream, and the
+reconfiguration time?
+
+## 2. How
+
+- **Equipment:** Nexys A7-100T, DHCP lease 192.168.1.126, host listener
+  on UDP 5001
+- **Software:** Vivado/Vitis 2025.2, FreeRTOS app on branch gnn-dfx-ctx;
+  `full_a.bit` + JTAG-loaded ELF; swaps triggered by poking
+  `ui_live.req_rm` over JTAG
+- **Benchmarks:** two chained swaps A->PDM and PDM->SONAR
+
+### Key commands
+
+```bash
+vitis -s sw/scripts/build_rtos.py
+xsdb hw/scripts/run_elf.xsdb build/dfx/full_a.bit .../tricorder_rtos.elf
+xsdb -eval '...; mwr <ui_live> 0; after 4000; mwr <ui_live> 1'   # req_rm
+python3 listen.py 26
+```
+
+## 3. Observations
+
+Both frames captured on the first attempt:
+
+```
+type=dfx dfx=1 from=3 from_name=A   to=0 to_name=PDM   from_bytes=311452 to_bytes=409856 swap_us=1043 sig=ok swaps=1 uptime=37
+type=dfx dfx=2 from=0 from_name=PDM to=1 to_name=SONAR from_bytes=409856 to_bytes=371724 swap_us=1132 sig=ok swaps=2 uptime=43
+```
+
+- **swap_us=1043 / 1132** — consistent with every sub-1.2 ms DMA->ICAPE2
+  measurement since entry 27
+- Sizes match the post-ILA-removal slot manifest exactly
+  (`SLOT_A_LEN=311452`, `SLOT_PDM_LEN=409856`, `SLOT_SONAR_LEN=371724`)
+- Chained `from`/`to` are correct across events (to of dfx=1 = from of
+  dfx=2); `swaps` tracks the lifetime counter
+
+## 4. Data analysis
+
+Same single-writer pattern as the switch events: `dfx_task` fills the
+record (`dfx_from/to/from_len/to_len/us/ok`) and bumps `dfx_seq`;
+`net_task` notices the sequence change and emits — no second MAC writer,
+no locking. Failed swaps are reported too (`sig=mismatch`), which turns
+the signature-check alert into an observable network event rather than
+just a sound. The shared UDP tail was factored out of `net_send_event`
+into `udp_bcast_finish()`, so all three frame types (telemetry, event,
+dfx) build headers through one code path. Build also flushed out two F5
+stragglers the earlier regex missed: `bme_gas_ohm` and `sonar_range_mm`
+were still clamping below-floor values into range (dead code caught by
+`-Wunused-function` on `fu_floor`).
+
+## 5. Ideas for future experiments
+
+- Re-flash QSPI so standalone boot carries the dfx frames
+- Aggregate swap statistics key (mean/max swap_us) in the 1 Hz frame
+- Host-side listener that renders swap history as a timeline
 
 ---
 

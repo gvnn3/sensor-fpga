@@ -195,6 +195,13 @@ You may also see the occasional extra frame on the same port whose first
 line is `type=event`. Those are the aperiodic switch-change events, not
 telemetry — skip any frame that does not start with `seq=`.
 
+A third frame type, `type=dfx`, is emitted once per personality swap: it
+names the personality switched from and to (`from_name=A to_name=PDM`),
+the size in bytes of each partial bitstream, and how long the
+reconfiguration took (`swap_us=1040` is 1.04 ms). `sig=mismatch` means
+the load failed its signature check — you will also hear the alert
+sound.
+
 ### The sentinel convention — why almost everything reads −1 today
 
 Only four sensors are actually on the board (ADT7420 temperature, ADXL362

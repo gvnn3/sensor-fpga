@@ -443,11 +443,11 @@ static char *kv_s(char *p, const char *k, const char *v)
     return p;
 }
 
+static void udp_bcast_finish(u32 payload_len);
+
 void net_send_event(unsigned int seq, int sw, unsigned int mask)
 {
     char *p = (char *)&txf[42];
-    u32 payload_len, iplen, udplen;
-    u16 csum;
     const char *state = (sw == -2) ? "error" : (sw == -1) ? "idle" : "active";
 
     p = kv_s(p, "type",   "event");
@@ -458,7 +458,36 @@ void net_send_event(unsigned int seq, int sw, unsigned int mask)
     p = kv_u(p, "mask",   mask);
     p = kv_u(p, "uptime", (u32)(xTaskGetTickCount() / configTICK_RATE_HZ));
 
-    payload_len = (u32)(p - (char *)&txf[42]);
+    udp_bcast_finish((u32)(p - (char *)&txf[42]));
+}
+
+/* Swap-event frame: from/to personality, partial sizes, stream time. */
+static void net_send_dfx(void)
+{
+    char *p = (char *)&txf[42];
+
+    p = kv_s(p, "type",      "dfx");
+    p = kv_u(p, "dfx",       ui_live.dfx_seq);
+    p = kv_i(p, "from",      ui_live.dfx_from);
+    p = kv_s(p, "from_name", ui_rm_name(ui_live.dfx_from));
+    p = kv_i(p, "to",        ui_live.dfx_to);
+    p = kv_s(p, "to_name",   ui_rm_name(ui_live.dfx_to));
+    p = kv_u(p, "from_bytes", ui_live.dfx_from_len);
+    p = kv_u(p, "to_bytes",  ui_live.dfx_to_len);
+    p = kv_u(p, "swap_us",   ui_live.dfx_us);
+    p = kv_s(p, "sig",       ui_live.dfx_ok ? "ok" : "mismatch");
+    p = kv_u(p, "swaps",     ui_live.swaps);
+    p = kv_u(p, "uptime",    (u32)(xTaskGetTickCount() / configTICK_RATE_HZ));
+
+    udp_bcast_finish((u32)(p - (char *)&txf[42]));
+}
+
+/* Shared tail for broadcast UDP frames: payload already in txf[42..]. */
+static void udp_bcast_finish(u32 payload_len)
+{
+    u32 iplen, udplen;
+    u16 csum;
+
     iplen  = 28 + payload_len;
     udplen = 8 + payload_len;
 
@@ -761,6 +790,14 @@ void net_task(void *arg)
                 if (es != evt_seen) {
                     evt_seen = es;
                     net_send_event(es, ui_live.evt_sw, ui_live.evt_mask);
+                }
+            }
+            {   /* DFX swap events: one frame per completed/attempted swap */
+                static unsigned int dfx_seen = 0;
+                unsigned int ds = ui_live.dfx_seq;
+                if (ds != dfx_seen) {
+                    dfx_seen = ds;
+                    net_send_dfx();
                 }
             }
             if (++n >= 100) {              /* once per second         */

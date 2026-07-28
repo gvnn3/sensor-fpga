@@ -218,6 +218,34 @@ schema and must not be confused with it:
 * Event frames never advance `tele_seq`; telemetry `seq` stays gap-free
   (gate G6).
 
+### 1.8 The DFX swap frame (`type=dfx`)
+
+A second aperiodic frame, emitted by `net_task` once per attempted
+personality swap (`dfx_task` publishes the record and bumps
+`ui_live.dfx_seq`; same single-writer pattern as the switch events).
+Fixed shape, 12 lines:
+
+```
+type=dfx
+dfx=4                 swap event sequence, wraps
+from=3                RM id loaded before the swap (-1 = none/unknown)
+from_name=A           NONE when from=-1
+to=0                  RM id requested
+to_name=PDM
+from_bytes=311452     partial bitstream sizes, bytes (0 = unknown)
+to_bytes=409856
+swap_us=1040          decouple->signature ICAP stream time
+sig=ok                or "mismatch" - the swap failed, cur_rm is -1
+swaps=5               lifetime successful-swap counter (same as telemetry)
+uptime=62
+```
+
+RM ids use the `req_rm` encoding: 0 PDM, 1 SONAR, 2 B, 3 A. Sizes come
+from the source actually streamed (QSPI slot manifest, or the DDR staging
+length when flash fell back). Mismatched swaps ARE reported — `sig=mismatch`
+with the sizes and time of the failed attempt. Like switch events, dfx
+frames never advance `tele_seq`.
+
 ---
 
 ## 2. The key table (frozen, emit order = table order)
