@@ -34,6 +34,15 @@ Interleaved throughout, uninterrupted by the swaps:
 - `I2C-EXT: scan: -> 0 device(s)` — external JA sensor bus walk
   (0 devices until the sensor harness is wired; with the harness expect
   0x76/77 BME688, 0x62 SCD-41, 0x10 VEML7700, 0x39 AS7341, 0x57 MAX30105)
+- `NET: telemetry seq=N keys=75 len=...` — one UDP broadcast per second
+  to port 5001 carrying the **full 75-key telemetry frame**: every sensor
+  in the plan, wired or not, plus link, lease and DFX state. Listen from
+  any machine on the same LAN with `nc -ulp 5001`. Unwired sensors report
+  `-1` (absent), `-2` (present but the read failed) or `-3` (not provided
+  by the loaded personality) instead of disappearing, so the frame is the
+  same 75 keys every second. The key table and the sentinel rules are in
+  **"Telemetry over Ethernet"** in `docs/manual.md`; the frozen schema is
+  `docs/telemetry-spec.md`
 
 ## Prerequisites
 
@@ -92,6 +101,17 @@ DFX: RM-SONAR live ... sig=50A40001 OK
 ```
 
 Any `MISMATCH` after a swap, or a stalled rotation, is a failure.
+
+Terminal 3 (optional) — watch the telemetry, from any machine on the same
+LAN as the board:
+
+```bash
+nc -ulp 5001
+```
+
+One 75-line `key=value` frame per second. `docs/manual.md`, "Telemetry
+over Ethernet", explains every key and why most of them read `-1` until
+the sensor harness is wired.
 
 ## Variants
 

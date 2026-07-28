@@ -113,6 +113,287 @@ Plug headphones or a speaker into the audio jack (J8). The scan
 sound also plays once at boot as a power-on chirp. The sound plays
 once per trigger; flipping the same switch off and on again replays it.
 
+## Telemetry over Ethernet
+
+Once a second the board broadcasts one UDP datagram on port 5001 with a
+reading for **every sensor in the tricorder plan** — the four that are
+wired today and the several dozen that are not. Nothing is hidden and
+nothing is left out: an unwired sensor reports a value that says "I am
+not here" rather than vanishing from the frame.
+
+### Listening
+
+Put a computer on the same LAN as the board and run:
+
+```bash
+nc -ulp 5001
+```
+
+(Some `nc` builds want `nc -ul 5001`; either is fine — the frame goes to
+the broadcast address, so no board IP is needed.) A frame arrives every
+second, starting the moment the Ethernet link comes up — the board sends
+its heartbeat frames even before its DHCP lease lands.
+
+To confirm you are seeing whole frames:
+
+```bash
+nc -ul 5001 | awk -F= 'NF==2{n++} /^seq=/{if(n)print "keys:",n; n=1}'
+```
+
+That prints `keys: 75` for every frame, always. The frame is
+**fixed-shape**: the same 75 keys, in the same order, every second,
+forever. There is no sparse mode and no optional key, so a consumer can
+parse by position or by name and never has to handle a missing field.
+
+### What a frame looks like
+
+Plain ASCII, one `key=value` per line, `\n`-terminated, no spaces, all
+values decimal signed 32-bit integers (no floats — the MicroBlaze has no
+FPU in this build). Scale lives in the key's suffix: `_cc` is
+centi-degrees Celsius, `_mv` millivolts, `_mg` milli-g, `_pct` whole
+percent, and so on.
+
+A real frame from the demo build — Hello-A personality loaded, DHCP lease
+held, no external harness attached:
+
+```
+seq=1234
+uptime=3671
+temp_cc=3128
+i2c=0
+rm=3
+swaps=7
+swap_us=1042
+pcm=-1000003
+energy=-3
+peak=-3
+schema=1
+ip=3232235902
+link=1
+sens_mask=16385
+probe_s=2
+acc_x_mg=-1000001
+acc_y_mg=-1000001
+acc_z_mg=-1000001
+acc_mag_mg=-1
+acc_temp_cc=-1000001
+xadc_temp_cc=-1000001
+xadc_vccint_mv=-1
+...
+sonar_bursts_cnt=-3
+```
+
+So: `temp_cc=3128` is 31.28 °C, `swap_us=1042` means the last personality
+swap took 1.042 ms, and `ip=3232235902` is 0xC0A8017E — 192.168.1.126.
+`sens_mask=16385` is bit 0 + bit 14: the on-board ADT7420 plus the
+soldered-down PDM microphone. The ADXL362 and XADC keys read as
+sentinels in this build (no accelerometer SPI core in the BD; the DDR
+controller owns the XADC primitive). Everything that reads negative here
+is a **sentinel**, explained below.
+
+You may also see the occasional extra frame on the same port whose first
+line is `type=event`. Those are the aperiodic switch-change events, not
+telemetry — skip any frame that does not start with `seq=`.
+
+### The sentinel convention — why almost everything reads −1 today
+
+Only four sensors are actually on the board (ADT7420 temperature, ADXL362
+accelerometer, ADMP421 microphone, XADC die monitor). Everything else in
+the key table is planned but unwired. Rather than omit those keys, the
+board sends a value that **cannot be a real reading**, so you can always
+tell "no data" from data — and, more usefully, tell *why* there is no
+data:
+
+| Value | Condition | What it means |
+|---|---|---|
+| `-1` | **ABSENT** | Not wired, not detected, or never probed. There is no data and none is expected. |
+| `-2` | **ERROR** | The device *is* there, but the last read failed, was NAKed, or hit the 2 ms bus timeout. Data is expected but missing right now. |
+| `-3` | **N/A** | The value comes from the reconfigurable partition and the currently loaded personality does not provide it (this includes "a swap is in progress"). The question is not meaningful in this configuration. |
+
+That covers keys that can never legitimately be negative — counts, ppm,
+lux, pascals, percentages, millivolts. Thirteen keys **can** legitimately
+be negative (temperatures, accelerations, PCM samples, bearings, dB
+figures), and for those `-1` is a perfectly good reading: `temp_cc=-1` is
+−0.01 °C. Those keys use the same three reason codes shifted a million
+below anything the hardware can produce:
+
+| Value | Condition |
+|---|---|
+| `-1000001` | ABSENT |
+| `-1000002` | ERROR |
+| `-1000003` | N/A |
+
+The rule for both sets is the same — **the last digit is the reason
+code**: 1 absent, 2 error, 3 not applicable. The signed keys are marked
+**†** in the tables below; they are `temp_cc`, `pcm`, `acc_x_mg`,
+`acc_y_mg`, `acc_z_mg`, `acc_temp_cc`, `xadc_temp_cc`, `doa_deg`,
+`bme_temp_cc`, `scd_temp_cc`, `max_temp_cc`, `afe_gain_db` and
+`sonar_snr_db`.
+
+Two things are deliberately *not* sentinels:
+
+- `rm=-1` keeps its original meaning, "a personality swap is in
+  progress". It is the one key exempt from the convention.
+- Every real reading is clamped into its declared range before it is
+  printed, so a misbehaving driver can never produce a number that looks
+  like a sentinel by accident.
+
+Reading the example frame above with this in hand: `pcm=-1000003` and
+`energy=-3` because Hello-A is loaded and it has no microphone path;
+`xadc_vccint_mv=-1` because the memory controller currently owns the XADC
+so there is no software path to it; and every `bme_*`, `co2_*`, `as_*`,
+`ppg_*`, `adc_*`, `cam_*`, `sipm_*` and `sonar_*` key is `-1` or `-3`
+because that hardware is not attached. Flip **SW0** to load the PDM
+personality and `pcm`, `energy` and the `mic_*` keys leave `-3` within one
+frame; flip **SW1** for sonar and the `sonar_*`, `adc_*` and `afe_*` keys
+do the same while the microphone keys go to `-3`.
+
+### The keys
+
+Seventy-five keys in four blocks, emitted in exactly this order.
+
+**Block 0 — the original ten** (unchanged names and meanings; existing
+consumers keep working)
+
+| Key | Units | Meaning |
+|---|---|---|
+| `seq` | count | Frame counter, +1 per frame, wraps at 2³² |
+| `uptime` | seconds | Seconds since boot |
+| `temp_cc` † | 0.01 °C | On-board ADT7420 temperature (3128 = 31.28 °C) |
+| `i2c` | count | Devices answering on the external JA I2C bus |
+| `rm` | enum | Loaded personality: 0 PDM, 1 SONAR, 2 Hello-B, 3 Hello-A, −1 swapping |
+| `swaps` | count | Completed DFX swaps since boot |
+| `swap_us` | µs | Duration of the most recent swap (0 = none yet) |
+| `pcm` † | signed sample | Last PDM PCM sample, −32768…32767 |
+| `energy` | count | Energy of the last PDM window |
+| `peak` | count | Last sonar echo peak |
+
+**Block 1 — system** (always live; these keys never carry a sentinel,
+except `link`)
+
+| Key | Units | Meaning |
+|---|---|---|
+| `schema` | — | Payload schema version — `1`. Refuse to parse a value you do not recognise |
+| `ip` | — | DHCP lease as a big-endian IPv4 integer; `0` = no lease yet |
+| `link` | — | 0 link down, 1 link up, `-2` the PHY is not answering on MDIO |
+| `sens_mask` | bitmap | Bit *i* set = sensor *i* detected (bit order is `enum sensor_id` in `sw/tricorder-rtos/src/sensors.h`) |
+| `probe_s` | seconds | Age of the presence information — seconds since the last complete discovery sweep |
+
+**Block 2 — on-board devices** (physically present on the Nexys A7-100T;
+no harness needed)
+
+| Key | Units | Meaning |
+|---|---|---|
+| `acc_x_mg` † | milli-g | ADXL362 acceleration, X axis (1004 = 1.004 g) |
+| `acc_y_mg` † | milli-g | ADXL362 acceleration, Y axis |
+| `acc_z_mg` † | milli-g | ADXL362 acceleration, Z axis |
+| `acc_mag_mg` | milli-g | Vector magnitude of the three axes |
+| `acc_temp_cc` † | 0.01 °C | ADXL362 die temperature |
+| `xadc_temp_cc` † | 0.01 °C | FPGA die temperature |
+| `xadc_vccint_mv` | mV | FPGA core supply |
+| `xadc_vccaux_mv` | mV | FPGA auxiliary supply |
+| `xadc_vbram_mv` | mV | Block-RAM supply |
+| `mic_n_cnt` | count | Active PDM microphone channels (0–7) |
+| `mic_spl_db` | dB SPL | A-weighted sound-pressure estimate |
+| `doa_deg` † | degrees | Bearing of the dominant sound source, −180…180 (needs the mic array) |
+
+The four `xadc_*` keys read absent (`-1000001` / `-1`) in the current
+build: the DDR2 memory controller instantiates the XADC primitive, so
+software has no path to it until the block design is changed. The
+`mic_*` and `doa_deg` keys need the PDM personality loaded *and* the
+six-microphone array attached.
+
+**Block 3 — the JA I2C sensor harness** — five STEMMA QT breakouts plus
+the camera's control port, daisy-chained into JA1/JA2. **None of this is
+wired today**, so every key here reads `-1` (or `-1000001` for the †
+keys) in every frame. Plug the harness in and they go live with no
+software change.
+
+| Key | Units | Meaning |
+|---|---|---|
+| `bme_temp_cc` † | 0.01 °C | BME688 temperature |
+| `bme_rh_pct` | % RH | BME688 relative humidity |
+| `bme_pres_pa` | Pa | BME688 barometric pressure |
+| `bme_gas_ohm` | Ω | BME688 gas-sensor resistance (VOC proxy — lower is dirtier air) |
+| `co2_ppm` | ppm | SCD-41 CO₂ concentration |
+| `scd_temp_cc` † | 0.01 °C | SCD-41 temperature |
+| `scd_rh_pct` | % RH | SCD-41 relative humidity |
+| `light_lux` | lux | VEML7700 ambient light, gain/integration corrected |
+| `light_raw` | count | VEML7700 raw counts (keeps sub-lux resolution) |
+| `as_415_cnt` | count | AS7341 violet channel, 415 nm |
+| `as_445_cnt` | count | AS7341 indigo, 445 nm |
+| `as_480_cnt` | count | AS7341 blue, 480 nm |
+| `as_515_cnt` | count | AS7341 cyan, 515 nm |
+| `as_555_cnt` | count | AS7341 green, 555 nm |
+| `as_590_cnt` | count | AS7341 yellow, 590 nm |
+| `as_630_cnt` | count | AS7341 orange, 630 nm |
+| `as_680_cnt` | count | AS7341 red, 680 nm |
+| `as_clear_cnt` | count | AS7341 clear (unfiltered) channel |
+| `as_nir_cnt` | count | AS7341 near-infrared channel |
+| `as_flicker_hz` | Hz | Mains flicker detected in the light: 100, 120, or 0 for none |
+| `ppg_red_cnt` | count | MAX30105 red LED photodiode counts |
+| `ppg_ir_cnt` | count | MAX30105 infrared counts |
+| `ppg_grn_cnt` | count | MAX30105 green counts |
+| `hr_bpm` | bpm | Heart rate derived from the IR channel |
+| `spo2_pct` | % | Blood oxygen saturation from the red/IR ratio |
+| `max_temp_cc` † | 0.01 °C | MAX30105 die temperature |
+
+`hr_bpm` and `spo2_pct` are the one place the `-1` / `-2` distinction
+earns its keep: `-1` means the pulse sensor is not on the bus at all,
+while `-2` means it is there and healthy but has seen no valid pulse for
+ten seconds — i.e. nobody's finger is on it.
+
+**Block 4 — instruments behind the DFX partition** — these come from
+whichever personality is loaded. With Hello-A or Hello-B they all read
+`-3` / `-1000003` (not applicable); with the right personality loaded but
+no analog front end attached they read `-1` / `-1000001` (absent). None of
+this hardware is wired today.
+
+| Key | Units | Meaning | Needs |
+|---|---|---|---|
+| `adc_rate_ksps` | kSPS | AD9226 sample rate the personality commanded | ADC |
+| `adc_min_code` | LSB code | Minimum sample in the last window, 0–4095 | ADC |
+| `adc_max_code` | LSB code | Maximum sample in the last window | ADC |
+| `adc_rms_code` | LSB code | RMS about mid-scale in the last window | ADC |
+| `adc_rail_cnt` | count | Samples pinned at 0x000/0xFFF — the floating-input signature | ADC |
+| `dac_mode` | enum | AD9708 output: 0 idle, 1 tone, 2 sweep, 3 sonar burst | DAC |
+| `dac_freq_hz` | Hz | Commanded output frequency | DAC |
+| `dac_ampl_pct` | % | Commanded full-scale amplitude | DAC |
+| `cam_pid` | — | OV7670 product/version ID; 30323 (0x7673) means the camera answered | — |
+| `cam_frames_cnt` | count | Frames captured into DDR2 since the personality loaded | camera |
+| `cam_fps_hz` | Hz | Measured frame rate | camera |
+| `cam_lum_pct` | % | Mean frame luminance | camera |
+| `cam_motion_pct` | % | Frame-to-frame difference metric | camera |
+| `sipm_cps` | counts/s | SiPM photon counts in the last one-second window | SiPM |
+| `sipm_tot_cnt` | count | Total SiPM counts since the personality loaded | SiPM |
+| `sipm_thresh_mv` | mV | Commanded comparator threshold | SiPM |
+| `afe_gain_db` † | dB | AD8332 ultrasound gain commanded, −5…+48 | AFE |
+| `afe_hilo` | enum | AD8332 gain range: 0 low, 1 high | AFE |
+| `sonar_range_mm` | mm | Pulse-echo range from the 40 kHz pair | sonar |
+| `sonar_tof_us` | µs | Echo time of flight | sonar |
+| `sonar_snr_db` † | dB | Echo peak over the noise floor | sonar |
+| `sonar_bursts_cnt` | count | Bursts fired since the personality loaded | sonar |
+
+`cam_pid` is the odd one out: the camera is identified over the always-on
+I2C bus rather than through the partition, so it reports `-1` (absent)
+rather than `-3` no matter which personality is loaded — plug the camera
+in and it reads 30323 immediately, while `cam_fps_hz` stays `-3` until the
+camera personality is swapped in.
+
+The full frozen schema — exact ranges, discovery rules, and byte-level
+framing — is `docs/telemetry-spec.md`.
+
+### Telemetry troubleshooting
+
+| Symptom | Cause / fix |
+|---|---|
+| `nc` shows nothing | Listener is not on the board's LAN segment, or a firewall is dropping broadcast UDP; check `link=1` on the console and that the board's Ethernet LEDs are lit |
+| Frames arrive but `ip=0` | No DHCP lease yet — the board broadcasts anyway; it retries a DISCOVER every 3 s |
+| `link=-2` | The Ethernet PHY never answered on MDIO — a hardware fault, not a cable problem |
+| Every value is `-1` or `-3` | Expected with no sensor harness attached (see above); check `temp_cc` and `uptime` are moving to confirm the board is alive |
+| `temp_cc=-1000002` | The ADT7420 is on the bus but its last read failed; it recovers on its own within about 10 s once the bus is healthy |
+| A frame has fewer than 75 lines | A frame beginning `type=event` is a switch event, not telemetry. A short *telemetry* frame is a bug — report it |
+
 ## Standalone operation
 
 With jumper **JP1 set to QSPI**, the board is fully standalone: at

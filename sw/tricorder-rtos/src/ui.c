@@ -304,6 +304,17 @@ static const struct ui_fn {
     { "IP",   val_ip },      /* S15 DHCP address / nO IP */
 };
 
+const char *ui_fn_name(int id)
+{
+    if (id == -1)
+        return "none";
+    if (id == -2)
+        return "error";
+    if (id < 0 || id >= 16)
+        return "?";
+    return ui_fns[id].tag;
+}
+
 void ui_task(void *arg)
 {
     char line[12], val[12];
@@ -320,6 +331,11 @@ void ui_task(void *arg)
         }
         if (n == 0) {
             ui_show("trICordr");
+            if (prev_id != -1) {           /* -> idle */
+                ui_live.evt_sw = -1;
+                ui_live.evt_mask = sw;
+                ui_live.evt_seq++;
+            }
             prev_id = -1;
         } else if (n > 1) {
             ui_show("Err SEL");
@@ -327,12 +343,18 @@ void ui_task(void *arg)
                 taskENTER_CRITICAL();
                 UI_AUDIO = UI_AUDIO ^ 2u;
                 taskEXIT_CRITICAL();
+                ui_live.evt_sw = -2;       /* multi-switch error state  */
+                ui_live.evt_mask = sw;
+                ui_live.evt_seq++;
             }
             prev_id = -2;
         } else {
             while (!(sw & (1u << id)))
                 id++;
             if (id != prev_id) {           /* new function on */
+                ui_live.evt_sw = id;       /* which switch was thrown   */
+                ui_live.evt_mask = sw;
+                ui_live.evt_seq++;
                 taskENTER_CRITICAL();
                 /* SW15 with no lease: that IS the error - alert instead */
                 UI_AUDIO = UI_AUDIO ^ ((id == 15 && ui_live.ip == 0) ? 2u : 1u);

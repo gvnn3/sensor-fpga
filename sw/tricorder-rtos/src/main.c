@@ -17,6 +17,7 @@
 #include "xgpio.h"
 #include "ui.h"
 #include "net.h"
+#include "sensors.h"
 #include "slots.h"
 
 #define EXT_IIC_BASE  XPAR_AXI_IIC_0_BASEADDR /* JA harness bus */
@@ -191,42 +192,25 @@ static void heartbeat_task(void *arg)
 
 static void sensors_task(void *arg)
 {
-    u8 buf[2];
-    int found;
-
     (void)arg;
+    sensors_init();
     for (;;) {
-        /* External bus walk: 1-byte read probe, NAK -> absent */
-        found = 0;
-        xil_printf("I2C-EXT: scan:");
-        for (u8 a = 0x08; a <= 0x77; a++) {
-            if (XIic_Recv(EXT_IIC_BASE, a, buf, 1, XIIC_STOP) == 1) {
-                xil_printf(" 0x%02x", a);
-                found++;
-                for (unsigned i = 0; i < sizeof(expected)/sizeof(expected[0]); i++)
-                    if (expected[i].addr == a)
-                        xil_printf("(%s)", expected[i].name);
-            }
+        sensors_poll();
+        /* feed the display/telemetry blackboard from the sensor layer */
+        if (sensors.st[SENS_ADT7420] == SENS_PRESENT)
+            ui_live.temp_centi = sensors.adt_temp_cc;
+        {
+            int n = 0;
+            static const enum sensor_id ja[5] = {
+                SENS_BME688, SENS_SCD41, SENS_VEML7700,
+                SENS_AS7341, SENS_MAX30105
+            };
+            for (int i = 0; i < 5; i++)
+                if (sensors.st[ja[i]] == SENS_PRESENT ||
+                    sensors.st[ja[i]] == SENS_ERROR)
+                    n++;
+            ui_live.i2c_devices = n;
         }
-        xil_printf(" -> %d device(s)\r\n", found);
-        ui_live.i2c_devices = found;
-
-        /* On-board ADT7420: 13-bit temperature, reg 0x00/0x01 */
-        buf[0] = 0x00;
-        if (XIic_Send(TMP_IIC_BASE, ADT7420_ADDR, buf, 1, XIIC_REPEATED_START) == 1 &&
-            XIic_Recv(TMP_IIC_BASE, ADT7420_ADDR, buf, 2, XIIC_STOP) == 2) {
-            int t16 = ((buf[0] << 8) | buf[1]) >> 3; /* 13-bit two's complement */
-            if (t16 & 0x1000)
-                t16 -= 0x2000;
-            /* 1/16 C per LSB; print as centi-C without floats */
-            int centi = t16 * 100 / 16;
-            ui_live.temp_centi = centi;
-            xil_printf("ADT7420: %d.%02d C\r\n", centi / 100,
-                       (centi < 0 ? -centi : centi) % 100);
-        } else {
-            xil_printf("ADT7420: read FAILED\r\n");
-        }
-
         vTaskDelay(pdMS_TO_TICKS(1000));
     }
 }
