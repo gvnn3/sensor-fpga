@@ -17,6 +17,7 @@ or removed at runtime from the FPGA dynamic (partial reconfiguration) region.
 
 # Table of Contents
 
+34. [EXPERIMENT 27 Jul 2026 22:45:00 Full-Schema Sensor Telemetry: Two AXI IIC Driver Bugs Between the Code and the Wire](#27-jul-2026-224500) :complete:
 33. [EXPERIMENT 27 Jul 2026 21:05:00 DHCP Lease Acquired: REFCLK Phase Was the Bug](#27-jul-2026-210500) :complete:
 32. [EXPERIMENT 27 Jul 2026 20:24:50 Ethernet Bring-Up: Telemetry on the Wire, DHCP Still Silent](#27-jul-2026-202450) :complete:
 
@@ -51,6 +52,102 @@ or removed at runtime from the FPGA dynamic (partial reconfiguration) region.
 3. [EXPERIMENT  4 Jul 2026 07:34:03 OHWR Cores for the Dynamic Region of This Host (Alveo U250)](#4-jul-2026-073403) :complete:
 2. [EXPERIMENT  4 Jul 2026 07:26:08 Vitis Libraries Suitability for the FPGA Dynamic Region](#4-jul-2026-072608) :complete:
 1. [EXPERIMENT  4 Jul 2026 07:20:01 Repository and Notebook Initialization](#4-jul-2026-072001) :complete:
+
+---
+
+# EXPERIMENT 27 Jul 2026 22:45:00 Full-Schema Sensor Telemetry: Two AXI IIC Driver Bugs Between the Code and the Wire :complete:
+
+## 1. Hypothesis
+
+Can the tricorder emit the full frozen 75-key telemetry schema — live values
+for wired sensors, out-of-range sentinels for everything else — plus
+switch-event frames, all captured by the UDP listener on the host?
+
+## 2. How
+
+- **Equipment:** Digilent Nexys A7-100T (XC7A100T), on-board ADT7420 @ 0x4B
+  on axi_iic_1, LAN8720A RMII PHY, host 192.168.1.112, board DHCP lease
+  192.168.1.126
+- **Software:** Vivado/Vitis 2025.2, FreeRTOS on classic MicroBlaze, new
+  `sensors.c` discovery/poll layer + `net_telemetry.c` 75-key emitter
+  (ultracode workflow, 9 verifier findings F1–F9 fixed pre-hardware)
+- **Benchmarks:** UDP listener (`listen.py`, port 5001) frame capture; UART
+  discovery log; JTAG register pokes for I2C ground truth
+
+### Key commands
+
+```bash
+vitis -s sw/scripts/build_rtos.py
+xsdb hw/scripts/run_elf.xsdb build/static_region.bit \
+    build/vitis-ws/tricorder_rtos/build/tricorder_rtos.elf
+timeout 40 cat /dev/ttyUSB1 > sens_uart.log   # discovery transitions
+python3 listen.py 25                          # telemetry gate
+# ground truth: JTAG dynamic-mode read of ADT7420 on axi_iic_1
+xsdb iicpoke.xsdb    # mwr 0x40810108 0x197 ; mwr 0x40810108 0x201
+```
+
+## 3. Observations
+
+First run: every I2C device ABSENT, including the soldered-on ADT7420:
+
+```
+SENS: init mask=00004000 i2c=0
+SENS: ADT7420 UNKNOWN->ABSENT
+I2C-EXT: walk -> 0 device(s)
+```
+
+JTAG poke of the same core with the same dynamic-mode sequence: device
+ACKs and delivers data — `DRR=0x10` (temp MSB ≈ 32 °C), but ISR reads
+`0xD2` — **TX_ERROR set after a fully successful read**.
+
+After the two driver fixes (§4), discovery and the wire gate both pass:
+
+```
+SENS: ADT7420 UNKNOWN->PRESENT
+SENS: init mask=00004001 i2c=0
+```
+
+| Gate | Result |
+|------|--------|
+| 75-key frame on listener | **PASS** — `seq=27 … temp_cc=3343 … sonar_bursts_cnt=-3` |
+| Live sensor value | **`temp_cc=3343`** (33.43 °C, ADT7420) |
+| `sens_mask` | **16385** = ADT7420 (bit 0) + PDM (bit 14) |
+| Unwired Type U keys | `-1` ABSENT / `-3` N-A as specified |
+| Unwired Type S keys | `-1000001` / `-1000003` as specified |
+| Switch-event frame (JTAG-injected) | **PASS** — `type=event evt=99 sw=7 name=SWAP state=active mask=128` |
+
+## 4. Data analysis
+
+Two independent AXI IIC (PG090) driver bugs conspired to fake a dead bus:
+
+1. **IISR is toggle-on-write, not write-1-to-clear.** `IISR = mask` with a
+   bit currently 0 *sets* it. The transfer preamble "cleared" TX_ERROR by
+   fabricating it, so every transaction returned instant-NAK and every
+   device probed ABSENT. Clearing must write back only the bits that read
+   as 1 (`i2c_isr_clear()`, the xiic_l idiom).
+2. **TX_ERROR doubles as "slave transmit complete".** In a master read the
+   master's *own* end-of-read NAK raises the same bit, racing the final
+   byte into the RX FIFO. Treating it as address-NAK dropped completed
+   reads. Discriminator: TX_ERROR with data arriving = completion;
+   TX_ERROR with the FIFO still empty after a bounded grace = real NAK.
+
+The JTAG register poke was the pivotal experiment: it separated "bus/device
+broken" from "driver misreads status" in one 6-word sequence. XADC and
+ADXL362 sentinels are as-designed (deviation D1: MIG owns the XADC
+primitive; no accel SPI core in the BD). Verifier findings F1–F9 all
+landed: fabricated-value window (F4) closed, clamp floors (F5) now emit
+error sentinels, RM counters (F8) capability-gated, NAK FIFO flush (F9),
+tri-state link (F3), single emitter (F2), bounded poll loop (F1/F6),
+doc examples match as-built truth (F7).
+
+## 5. Ideas for future experiments
+
+- Wire a JA-bus sensor (VEML7700 is the simplest: no ID register, config
+  echo check already in place) and watch its keys go live without a rebuild
+- Soak test: hours of frames, assert `tele_overflow` stays 0
+- Re-flash QSPI boot image so the standalone boot carries the new app
+- Feed `light_lux` / `co2_ppm` to the 7-seg via the existing switch UI
+- Grafana/InfluxDB ingest of the key=value stream on the host
 
 ---
 

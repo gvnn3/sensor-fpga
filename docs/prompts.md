@@ -6,6 +6,49 @@ chronological order (newest first). Each entry has the date and time
 
 ---
 
+## 27 Jul 2026 22:20:00
+
+> Continue
+> *(after interrupting a JTAG run/symbol-lookup tool call and switching model
+> via /model; no correction given)*
+
+---
+
+## 27 Jul 2026 21:55:00
+
+> keep going until the sensor telemetry shows up in the listener
+
+---
+
+## 27 Jul 2026 21:45:00
+
+> keep going until the switch events show up in nc
+
+---
+
+## 27 Jul 2026 21:35:00
+
+> Also add a telemtry packet whenever a switch is thrown, including the error
+> state when multiple switches are thrown.  Indicate the switch number/name in
+> the packet
+
+---
+
+## 27 Jul 2026 21:20:00
+
+> Start a new branch gnn-tricorder-telemetry and use ultracode to add
+> telemetry for all the sensors planned for the board.  When no data is
+> present send a constant value that is outside the range of the sensor
+> (-1, etc.)
+
+---
+
+## 27 Jul 2026 21:10:00
+
+> Merge to main
+
+---
+
 ## 27 Jul 2026 08:50:00
 
 > There is an ethernet cable plugged in, this can be used for testing, it is
@@ -46,29 +89,6 @@ chronological order (newest first). Each entry has the date and time
 
 > Boot from QSPI so the board runs standalone
 > *(with "keep going until the standalone boot gate passes")*
-
----
-
-## 27 Jul 2026 21:35:00
-
-> Also add a telemtry packet whenever a switch is thrown, including the error
-> state when multiple switches are thrown.  Indicate the switch number/name in
-> the packet
-
----
-
-## 27 Jul 2026 21:20:00
-
-> Start a new branch gnn-tricorder-telemetry and use ultracode to add
-> telemetry for all the sensors planned for the board.  When no data is
-> present send a constant value that is outside the range of the sensor
-> (-1, etc.)
-
----
-
-## 27 Jul 2026 21:10:00
-
-> Merge to main
 
 ---
 

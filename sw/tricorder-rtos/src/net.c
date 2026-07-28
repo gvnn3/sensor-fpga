@@ -68,10 +68,10 @@
 
 /* ---- Network constants (spec §7 — frozen) --------------------------- */
 
-static const u8 our_mac[6] = { 0x02, 0x18, 0x3E, 0xCF, 0x44, 0x01 };
-static u8 our_ip[4] = { 0, 0, 0, 0 };  /* DHCP lease; 0.0.0.0 = none */
+const u8 our_mac[6] = { 0x02, 0x18, 0x3E, 0xCF, 0x44, 0x01 };
+u8 our_ip[4] = { 0, 0, 0, 0 };  /* DHCP lease; 0.0.0.0 = none */
 static int have_ip = 0;
-static const u8 bcast_mac[6] = { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF };
+const u8 bcast_mac[6] = { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF };
 
 #define UDP_PORT      5001u
 #define ETH_MIN       60u        /* min frame, no FCS                   */
@@ -82,11 +82,11 @@ static const u8 bcast_mac[6] = { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF };
 struct net_stats net_stats;
 
 static u8  rxf[1536];            /* RX staging (spec §8.4)              */
-static u8  txf[1536];            /* TX staging                          */
+u8  txf[1536];            /* TX staging                          */
 static u32 phy_addr = 1;         /* Digilent strap; §9.3 scans if not   */
-static int link_up_cached = 0;
-static u16 ip_id = 0;            /* IPv4 ID, incrementing, starts 0     */
-static u32 tele_seq = 0;         /* telemetry seq, starts 0, wraps      */
+static int link_up_cached = 0;   /* 1 up, 0 down, -1 MDIO dead (F3) */
+u16 ip_id = 0;            /* IPv4 ID, incrementing, starts 0     */
+u32 tele_seq = 0;         /* telemetry seq, starts 0, wraps      */
 static TickType_t last_link_poll = 0;
 
 /* ---- Word-only buffer copies (spec §6.2) ---------------------------- */
@@ -118,7 +118,7 @@ static void buf_copy_from(u8 *dst, const volatile u32 *src, u32 len)
 
 /* ---- Internet checksum (spec §7.4, RFC 1071) ------------------------ */
 
-static u16 inet_csum(const u8 *p, u32 len)
+u16 inet_csum(const u8 *p, u32 len)
 {
     u32 sum = 0;
 
@@ -165,7 +165,7 @@ void mdio_write(u32 phyad, u32 regad, u16 val)
 
 /* Send txf[0..len). Pads to 60 with zeros in software. Returns 0, or
  * -1 if the previous TX never completed (TX_CTRL stuck busy).        */
-static int emac_send(u32 len)
+int emac_send(u32 len)
 {
     u32 i;
 
@@ -189,7 +189,7 @@ static int emac_send(u32 len)
 
 /* ---- Frame builders (spec §7) --------------------------------------- */
 
-static void eth_header(u8 *f, const u8 *dst, u16 ethertype)
+void eth_header(u8 *f, const u8 *dst, u16 ethertype)
 {
     for (int i = 0; i < 6; i++) {
         f[i]     = dst[i];
@@ -489,61 +489,7 @@ void net_send_event(unsigned int seq, int sw, unsigned int mask)
     (void)emac_send(42 + payload_len);
 }
 
-void net_send_telemetry(void)
-{
-    char *p = (char *)&txf[42];            /* payload after headers   */
-    u32 payload_len, iplen, udplen;
-    u16 csum;
-
-    /* Payload: frozen keys, order, formats (spec §7.3.1) */
-    p = kv_s(p, "type",    "telemetry");
-    p = kv_u(p, "seq",     tele_seq);
-    p = kv_u(p, "uptime",  (u32)(xTaskGetTickCount() / configTICK_RATE_HZ));
-    p = kv_i(p, "temp_cc", ui_live.temp_centi);
-    p = kv_i(p, "i2c",     ui_live.i2c_devices);
-    p = kv_i(p, "rm",      ui_live.cur_rm);
-    p = kv_u(p, "swaps",   ui_live.swaps);
-    p = kv_u(p, "swap_us", ui_live.last_swap_us);
-    p = kv_i(p, "pcm",     ui_live.pcm);
-    p = kv_u(p, "energy",  ui_live.energy);
-    p = kv_u(p, "peak",    ui_live.peak);
-    payload_len = (u32)(p - (char *)&txf[42]);
-    iplen  = 28 + payload_len;
-    udplen = 8 + payload_len;
-
-    eth_header(txf, bcast_mac, 0x0800u);
-    txf[14] = 0x45;                        /* Ver/IHL                 */
-    txf[15] = 0x00;                        /* TOS                     */
-    txf[16] = (u8)(iplen >> 8);            /* total length            */
-    txf[17] = (u8)iplen;
-    txf[18] = (u8)(ip_id >> 8);            /* ID                      */
-    txf[19] = (u8)ip_id;
-    ip_id++;
-    txf[20] = 0x00; txf[21] = 0x00;        /* flags/frag              */
-    txf[22] = 0x40;                        /* TTL 64                  */
-    txf[23] = 0x11;                        /* proto UDP               */
-    txf[24] = 0x00; txf[25] = 0x00;        /* csum placeholder        */
-    for (int i = 0; i < 4; i++) {
-        txf[26 + i] = our_ip[i];           /* src IP                  */
-        txf[30 + i] = 0xFF;                /* dst 255.255.255.255     */
-    }
-    csum = inet_csum(&txf[14], 20);
-    txf[24] = (u8)(csum >> 8);
-    txf[25] = (u8)csum;
-    txf[34] = (u8)(UDP_PORT >> 8);         /* src port 5001           */
-    txf[35] = (u8)UDP_PORT;
-    txf[36] = (u8)(UDP_PORT >> 8);         /* dst port 5001           */
-    txf[37] = (u8)UDP_PORT;
-    txf[38] = (u8)(udplen >> 8);           /* UDP length              */
-    txf[39] = (u8)udplen;
-    txf[40] = 0x00; txf[41] = 0x00;        /* UDP csum 0 (legal, v1)  */
-
-    (void)emac_send(14 + iplen);
-
-    if (tele_seq % 60u == 0)               /* E4, every 60th packet   */
-        xil_printf("NET: telemetry seq=%u\r\n", (unsigned)tele_seq);
-    tele_seq++;
-}
+/* net_send_telemetry() now lives in net_telemetry.c (75-key schema). */
 
 /* ---- RX dispatch (spec §8.4) ---------------------------------------- */
 
@@ -627,8 +573,15 @@ void net_poll(void)
         int up;
 
         last_link_poll = now;
-        up = (mdio_read(phy_addr, PHY_BMSR) & 0x0004u) != 0;
-        if (up && !link_up_cached) {
+        {
+            u16 bmsr = mdio_read(phy_addr, PHY_BMSR);
+            if (bmsr == 0xFFFFu) {             /* MDIO timeout: unknown */
+                link_up_cached = -1;
+                return;
+            }
+            up = (bmsr & 0x0004u) != 0;
+        }
+        if (up && link_up_cached != 1) {
             xil_printf("NET: link up\r\n");           /* E3            */
             send_arp(0);                              /* gratuitous    */
         }
@@ -703,6 +656,7 @@ int net_init(void)
      *    (axi_gpio_eth powers up driving 0 = reset asserted).        */
     if (emac_program_mac() < 0) {
         xil_printf("NET: MAC program TX stuck\r\n");
+        link_up_cached = -1;
         return -2;
     }
 
