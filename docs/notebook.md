@@ -17,7 +17,8 @@ or removed at runtime from the FPGA dynamic (partial reconfiguration) region.
 
 # Table of Contents
 
-32. [EXPERIMENT 27 Jul 2026 20:24:50 Ethernet Bring-Up: Telemetry on the Wire, DHCP Still Silent](#27-jul-2026-202450) :in_progress:
+33. [EXPERIMENT 27 Jul 2026 21:05:00 DHCP Lease Acquired: REFCLK Phase Was the Bug](#27-jul-2026-210500) :complete:
+32. [EXPERIMENT 27 Jul 2026 20:24:50 Ethernet Bring-Up: Telemetry on the Wire, DHCP Still Silent](#27-jul-2026-202450) :complete:
 
 31. [EXPERIMENT 27 Jul 2026 07:28:20 Standalone QSPI Boot: Bitstream + Bootloader + App, No Host Required](#27-jul-2026-072820) :complete:
 30. [EXPERIMENT 27 Jul 2026 06:56:01 Switches Command the Hardware: Personality Loads, Boot Chirp, Mismatch Alert](#27-jul-2026-065601) :complete:
@@ -53,7 +54,81 @@ or removed at runtime from the FPGA dynamic (partial reconfiguration) region.
 
 ---
 
-# EXPERIMENT 27 Jul 2026 20:24:50 Ethernet Bring-Up: Telemetry on the Wire, DHCP Still Silent :in_progress:
+# EXPERIMENT 27 Jul 2026 21:05:00 DHCP Lease Acquired: REFCLK Phase Was the Bug :complete:
+
+## 1. Hypothesis
+
+Entry 32 left Ethernet half-working: telemetry reached the host but no
+DHCP OFFER ever arrived and ping never answered. Two hypotheses were
+open - EmacLite MAC filtering, or something in the RMII datapath.
+
+## 2. How
+
+- Removed a self-inflicted blocker first: the bitstream still carried
+  `TX_LOOPBACK=1` from an earlier bisect, so the board had been **deaf to
+  the wire** (RX fed from its own TX) during every entry-32 receive
+  measurement. With it gone, real LAN traffic appeared immediately
+  (ARP broadcasts, UDP 58277->5002) - and the "unicast never received"
+  and "MAC filter" theories evaporated.
+- Then TX died on the clean build while it had worked on the loopback
+  build - the same code, different placement. **Root cause: the TX
+  output flops launch on the clk50 rising edge and the ODDR forwarded
+  REFCLK rising at the same instant, so the PHY sampled TXD exactly as it
+  changed - zero setup margin, working or failing on placement luck.**
+  Fix: forward REFCLK inverted (ODDR D1=0/D2=1), putting the PHY's
+  sampling edge in the middle of our data eye (~10 ns each side).
+- Also added DHCP option 61 (client identifier) for router
+  compatibility, matching what this network's router issues to hosts.
+
+### Key commands
+
+```bash
+make -C hw static && make -C hw rtos
+xsdb hw/scripts/run_elf.xsdb build/static_region.bit .../tricorder_rtos.elf
+ping -c4 192.168.1.126 ; nc -ulp 5001
+```
+
+## 3. Observations
+
+- **`NET: DHCP discover` -> `DHCP request 192.168.1.126` -> `NET: DHCP IP
+  192.168.1.126`** - a real lease from the router at 192.168.1.1.
+- **Ping answered from this host: rtt 11.8-172 ms**, 2-4 replies per run
+  (loss is this shared LAN, not the board).
+- **Telemetry streaming continuously**: `seq=6 uptime=43 temp_cc=3337
+  i2c=0 rm=3 swaps=0 ...` captured with `nc -ulp 5001`.
+- Before the REFCLK fix: telemetry silent, ping 100% loss. After: both
+  work on the first try, and DHCP completed within two DISCOVERs.
+
+## 4. Data analysis
+
+Two bugs stacked, and each masked the other. The debug-only
+`TX_LOOPBACK` left in the build made receive measurements meaningless
+for hours - the lesson being that a bisect switch must be reverted the
+moment its question is answered, and that "it works" evidence collected
+under a debug build proves only what that build wired. Underneath it sat
+a genuine hardware-timing defect: source-synchronous RMII with the clock
+forwarded in phase with the data is a coin flip, and it flipped heads on
+one build and tails on the next, which is exactly why intermittent
+"works on my build" Ethernet bugs are notorious. Inverting the forwarded
+clock is the standard remedy and cost one line. The tricorder now has an
+IP, answers ping, and streams sensor telemetry to any listener on the
+network.
+
+## 5. Ideas for future experiments
+
+- Add the `set_output_delay` constraints the spec drafted (currently
+  commented out) so the margin is enforced by timing analysis rather
+  than by construction.
+- Lease renewal (T1/T2 timers) - the client currently takes a lease and
+  keeps it until reboot.
+- Telemetry to a fixed collector IP as well as broadcast; add the DFX
+  personality name and switch state to the payload.
+- SW15 now shows the leased address; verify the alternating octet-pair
+  render at the board.
+
+---
+
+# EXPERIMENT 27 Jul 2026 20:24:50 Ethernet Bring-Up: Telemetry on the Wire, DHCP Still Silent :complete:
 
 ## 1. Hypothesis
 

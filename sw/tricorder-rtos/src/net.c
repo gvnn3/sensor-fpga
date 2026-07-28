@@ -356,6 +356,9 @@ static u32 dhcp_build(u8 msgtype)
         d[o++] = 54; d[o++] = 4;
         for (i = 0; i < 4; i++) d[o++] = dhcp_server[i];
     }
+    d[o++] = 61; d[o++] = 7; d[o++] = 1;          /* client-id: 01+MAC  */
+    for (i = 0; i < 6; i++)
+        d[o++] = our_mac[i];
     d[o++] = 55; d[o++] = 2; d[o++] = 1; d[o++] = 3; /* want mask, gw   */
     d[o++] = 255;
     while (o < 300)                                /* BOOTP min padding  */
@@ -490,6 +493,16 @@ static void rx_dispatch(void)
     net_stats.rx_frames++;
     buf_copy_from(rxf, (const volatile u32 *)EMAC_RXBUF, 64);
     ethertype = (u16)(((u16)rxf[12] << 8) | rxf[13]);
+
+    /* Bring-up logger: first 40 frames, show what actually arrives so a
+     * DHCP OFFER (UDP dport 68) is distinguishable from "never sent". */
+    if (net_stats.rx_frames <= 40) {
+        u16 sp = (u16)(((u16)rxf[34] << 8) | rxf[35]);
+        u16 dp = (u16)(((u16)rxf[36] << 8) | rxf[37]);
+        xil_printf("RX %u: et=%04x dst=%02x%02x%02x proto=%02x %u->%u\r\n",
+                   (unsigned)net_stats.rx_frames, ethertype,
+                   rxf[0], rxf[1], rxf[2], rxf[23], sp, dp);
+    }
 
     if (ethertype == 0x0806u) {                       /* ARP: 42 B     */
         REG32(EMAC_RXCTRL) = 0;                       /* release       */
@@ -732,8 +745,7 @@ void net_task(void *arg)
                     /* fresh DISCOVER every 3 s until an ACK lands   */
                     dhcp_start();
                 }
-                if (have_ip)
-                    net_send_telemetry();
+                net_send_telemetry();   /* also a TX heartbeat pre-lease */
             }
         }
         vTaskDelay(pdMS_TO_TICKS(10));

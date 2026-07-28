@@ -242,7 +242,7 @@ module tricorder_m5_top (
     IOBUF u_qspi_cs  (.IO(qspi_cs),  .I(qspi_ss_o),  .O(qspi_ss_i),  .T(qspi_ss_t));
 
     // ---- Ethernet: MII<->RMII shim + REFCLK ODDR + MDIO IOBUF ----
-    rmii_shim #(.TX_LOOPBACK(1)) rmii_shim_i (
+    rmii_shim rmii_shim_i (
         .clk50       (eth_clk50),
         .rst         (1'b0),
         .mii_tx_clk  (mii_tx_clk),
@@ -261,13 +261,18 @@ module tricorder_m5_top (
         .rmii_rx_er  (eth_rxerr)
     );
 
+    /* REFCLK forwarded INVERTED: our TX flops launch on the clk50 rising
+     * edge, so the PHY must sample half a period later. D1=0/D2=1 puts
+     * the PHY's rising edge in the middle of our data eye (~10 ns setup
+     * and hold instead of ~0). Without this, TX works or fails depending
+     * on placement luck - observed both ways on consecutive builds. */
     ODDR #(.DDR_CLK_EDGE("OPPOSITE_EDGE"), .INIT(1'b0), .SRTYPE("SYNC"))
     u_eth_refclk (
         .Q  (eth_refclk),
         .C  (eth_clk50),
         .CE (1'b1),
-        .D1 (1'b1),
-        .D2 (1'b0),
+        .D1 (1'b0),
+        .D2 (1'b1),
         .R  (1'b0),
         .S  (1'b0)
     );
