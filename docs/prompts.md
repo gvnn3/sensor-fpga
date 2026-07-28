@@ -6,6 +6,20 @@ chronological order (newest first). Each entry has the date and time
 
 ---
 
+## 28 Jul 2026 01:50:00
+
+> Create a full walk through document explaining how the enire system works
+> including the FPGA communication, RTOS, and how the FPGA DFX parts change
+> at run time.
+
+---
+
+## 28 Jul 2026 01:40:00
+
+> Create a wiring diagram for all sensors and add it to the docs directory.
+
+---
+
 ## 28 Jul 2026 01:25:00
 
 > Merge to main
