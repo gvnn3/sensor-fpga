@@ -17,6 +17,7 @@ or removed at runtime from the FPGA dynamic (partial reconfiguration) region.
 
 # Table of Contents
 
+35. [EXPERIMENT 27 Jul 2026 23:59:00 QSPI Re-Flash: Programmer Clears QE, Stale Bitstream Kills TX, Fresh DFX Build Fixes Both](#27-jul-2026-235900) :complete:
 34. [EXPERIMENT 27 Jul 2026 22:45:00 Full-Schema Sensor Telemetry: Two AXI IIC Driver Bugs Between the Code and the Wire](#27-jul-2026-224500) :complete:
 33. [EXPERIMENT 27 Jul 2026 21:05:00 DHCP Lease Acquired: REFCLK Phase Was the Bug](#27-jul-2026-210500) :complete:
 32. [EXPERIMENT 27 Jul 2026 20:24:50 Ethernet Bring-Up: Telemetry on the Wire, DHCP Still Silent](#27-jul-2026-202450) :complete:
@@ -52,6 +53,90 @@ or removed at runtime from the FPGA dynamic (partial reconfiguration) region.
 3. [EXPERIMENT  4 Jul 2026 07:34:03 OHWR Cores for the Dynamic Region of This Host (Alveo U250)](#4-jul-2026-073403) :complete:
 2. [EXPERIMENT  4 Jul 2026 07:26:08 Vitis Libraries Suitability for the FPGA Dynamic Region](#4-jul-2026-072608) :complete:
 1. [EXPERIMENT  4 Jul 2026 07:20:01 Repository and Notebook Initialization](#4-jul-2026-072001) :complete:
+
+---
+
+# EXPERIMENT 27 Jul 2026 23:59:00 QSPI Re-Flash: Programmer Clears QE, Stale Bitstream Kills TX, Fresh DFX Build Fixes Both :complete:
+
+## 1. Hypothesis
+
+Does re-flashing QSPI with the new telemetry app give a standalone boot
+that passes the same listener gate as the JTAG-loaded build?
+
+## 2. How
+
+- **Equipment:** Nexys A7-100T, S25FL128S QSPI flash, LAN8720A PHY, DHCP
+  network, host listener on UDP 5001
+- **Software:** Vivado/Vitis 2025.2; hw/dfx/build_dfx.tcl (full DFX flow),
+  hw/scripts/build_flash.tcl + program_flash.tcl; flash-boot exercised by
+  loading `full_a.bit` over JTAG (bootloader in BRAM then pulls the app
+  from flash — identical to power-on boot minus FPGA config from flash,
+  proven separately in entry 31)
+
+### Key commands
+
+```bash
+vivado -mode batch -source hw/dfx/build_dfx.tcl      # full rebuild, ~25 min
+vivado -mode batch -source hw/scripts/build_flash.tcl
+vivado -mode batch -source hw/scripts/program_flash.tcl
+xsdb hw/scripts/run_elf.xsdb ...                     # QE restore (see §4)
+xsdb -eval 'connect; ...; fpga build/dfx/full_a.bit' # flash boot
+python3 listen.py 15                                 # gate
+```
+
+## 3. Observations
+
+Three distinct failures before the gate passed:
+
+| Attempt | Symptom | Cause |
+|---------|---------|-------|
+| 1 | `BOOT: bad magic eeeeeeee` | Vivado flash programmer **cleared the QE bit**; quad read returned float garbage |
+| 2 | Boots, telemetry emits, `NET: loopback 0/60 bytes FAIL`, DHCP discover forever | `full_a.bit` in flash was built 19:29 — **before the REFCLK ODDR inversion fix** (21:03); TX dead on the wire |
+| 3 (fresh DFX build) | — | ILA debug block aborted the flow (`'1' vacant channels insufficient`); removed it — never worked, ethernet proven |
+
+After rebuild + re-flash + QE restore, flash boot in one pass:
+
+```
+BOOT: qspi bootloader / BOOT: launching app
+SENS: ADT7420 UNKNOWN->PRESENT / init mask=00004001
+NET: loopback 60/60 bytes OK
+NET: DHCP IP 192.168.1.126
+NET: telemetry seq=0 keys=75 len=1081
+DFX: RM-PDM live in 1040 us, sig=9D3A0001 OK
+```
+
+- Listener gate: **12 frames / 15 s**, `temp_cc=3250` live, full 75-key
+  schema, correct sentinels
+- ILA removal shrank every partial (~15%): `slots.h` lengths changed →
+  **app rebuild required between build_flash passes** (slot table is
+  compiled in)
+- JTAG-triggered swap from the new flash slots: **RM-PDM live in
+  1040 µs**, signature verified
+
+## 4. Data analysis
+
+Vivado's flash programmer writes the status/config registers during
+program-verify and leaves QE=0 — every `program_flash.tcl` run must be
+followed by a QE restore before quad reads work. The app's QSPI init
+already repairs it (`QSPI: QE set, CR1=02`), so one JTAG run of the app
+(or any future boot.c QE-write) heals the flash; a cold standalone boot
+straight after programming would hang on bad magic. The loopback
+0/60 → 60/60 flip between attempts 2 and 3 is a clean A/B on the same
+board, same PHY, same app — only the bitstream differed — closing the
+case on entry 33's REFCLK phase diagnosis. The slots.h drift is a
+build-order trap: partial sizes are compiled into the app, so any
+change to RM contents forces app rebuild → bootimg repack → re-flash,
+in that order.
+
+## 5. Ideas for future experiments
+
+- Teach boot.c to check/set QE itself (single-mode WRR before first quad
+  read) — removes the post-programming JTAG step entirely
+- Add QE restore pass to program_flash.tcl via JTAG-poked SPI commands
+- Physical power-cycle confirmation of the full cold boot (config from
+  flash + app from flash) when at the board
+- Background-stage flash partials into DDR at boot so first swap skips
+  the 5.9 s CPU-bound quad read
 
 ---
 

@@ -42,22 +42,9 @@ synth_design -top tricorder_m5_top -part $part
 write_checkpoint -force $out/static_synth.dcp
 
 # --- Configuration A: link, floorplan, implement --------------------------
-# Debug core over the shim's mark_debug nets (ethernet bring-up).
-# One net per 1-bit probe port: avoids all PORT_WIDTH juggling.
-set dbg_nets [lsort -dictionary [get_nets -hier -filter {MARK_DEBUG}]]
-if {[llength $dbg_nets] > 0} {
-    create_debug_core u_ila_eth ila
-    set_property C_DATA_DEPTH 8192 [get_debug_cores u_ila_eth]
-    connect_debug_port u_ila_eth/clk \
-        [get_nets -hier -filter {NAME =~ *eth_clk50*} -quiet]
-    set pidx 0
-    foreach n $dbg_nets {
-        if {$pidx > 0} { create_debug_port u_ila_eth probe }
-        connect_debug_port [get_debug_ports u_ila_eth/probe$pidx] $n
-        incr pidx
-    }
-    puts "DFX: ILA over $pidx single-bit probes"
-}
+# (Ethernet bring-up ILA removed: create_debug_core's per-probe flow hit
+# an unresolved "vacant channels" width bug, and the shim is proven on
+# hardware. mark_debug attributes in rmii_shim.v are inert without it.)
 
 read_checkpoint -cell u_rm $out/rm_a.dcp
 set_property HD.RECONFIGURABLE true [get_cells u_rm]

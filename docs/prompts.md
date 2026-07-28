@@ -6,6 +6,18 @@ chronological order (newest first). Each entry has the date and time
 
 ---
 
+## 27 Jul 2026 23:59:00
+
+> keep going until the flash boot passes the listener gate
+
+---
+
+## 27 Jul 2026 22:50:00
+
+> Re-flash QSPI so standalone boot carries the new telemetry
+
+---
+
 ## 27 Jul 2026 22:20:00
 
 > Continue
