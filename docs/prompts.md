@@ -6,6 +6,12 @@ chronological order (newest first). Each entry has the date and time
 
 ---
 
+## 28 Jul 2026 20:45:00
+
+> Add the checklist to the bench sheet and reprint
+
+---
+
 ## 28 Jul 2026 20:30:00
 
 > I ordered the parts, add a bring-up checklist to the wiring doc
