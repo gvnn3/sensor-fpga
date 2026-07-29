@@ -6,6 +6,15 @@ chronological order (newest first). Each entry has the date and time
 
 ---
 
+## 28 Jul 2026 20:15:00
+
+> What is a good, small, speaker for the board? / Add the speaker to the
+> parts sheet
+> *(preceded by: Are these the Adafruit parts or? / Do I need cables for
+> the I2C bus?)*
+
+---
+
 ## 28 Jul 2026 19:55:00
 
 > I will push, print the wiring diagram for the bench
