@@ -185,3 +185,78 @@ afe_hilo     (JA8) ───────── AD8332 HILO
   JA12, alone); do not stack it with the camera.**
 - Piezo drive and SiPM bias stay off the Pmod rail (screw terminal /
   eval-board supply respectively).
+
+## 9. Bring-up checklist (work in this order)
+
+Tools for every step: UART console (115200) shows `SENS:` state
+transitions the moment a device is detected; the UDP listener shows the
+matching telemetry key going live within ~2 s. No rebuilds needed for
+any I2C device — discovery is automatic.
+
+### 9.0 Before anything
+
+- [ ] Board powers, standalone boot streams telemetry (baseline:
+      `sens_mask=16385`, all harness keys sentinels)
+- [ ] Verify 3V3/GND polarity at every Pmod plug **with a meter, before
+      first insertion** — pins 5/11 GND, 6/12 VCC
+- [ ] Power off before plugging every harness change
+
+### 9.1 Speaker (easiest, instant feedback)
+
+- [ ] STEMMA speaker: power from Pmod 3V3+GND, signal from AUD jack
+      pigtail (tip = signal, sleeve = GND)
+- [ ] Power-cycle → boot chirp audible; flip any switch → scan sound
+
+### 9.2 I2C chain, one device at a time
+
+Add devices to the chain one by one, power-cycling between additions.
+After each: UART prints `SENS: <name> UNKNOWN->PRESENT` (or `->ERROR`
+for the identity-only devices — that still proves the wiring).
+
+- [ ] VEML7700 first (simplest, full driver): `light_lux` goes live —
+      cover it, value drops
+- [ ] SCD-41 (own VCC dupont from JA12, chain cable data-only):
+      `co2_ppm` live after ~5 s warm-up; breathe on it, value climbs
+- [ ] BME688: UART shows PRESENT->ERROR (identity-only driver, wiring
+      proven); `bme_*` keys read -2/-1000002, **not** -1
+- [ ] AS7341: same identity-only pattern
+- [ ] MAX30105: same; also `i2c=` count in telemetry = devices answering
+- [ ] Full chain: `I2C-EXT: walk -> 5 device(s)` on the 30 s UART walk
+
+### 9.3 PDM microphone array (needs PDM personality)
+
+- [ ] Wire mic 0 only (clk + data[0]); flip SW0 → PDM personality;
+      `mic_spl_db`/`energy` live; snap fingers, energy jumps
+- [ ] Add mics 1-5; verify each data line by covering mics one at a time
+- [ ] Watch `pdm_data[5]` during later ADC runs (coupled with
+      adcdac_clk) — swap documented in §5 if noisy
+
+### 9.4 Camera (OV7670)
+
+- [ ] SCCB only first (tap JA1/JA2): UART shows OV7670 PRESENT,
+      `cam_pid` reads 0x76xx value live
+- [ ] Then JB/JC data harness (10 cm on cam_pclk); `cam_frames_cnt`
+      advances once the CAM personality exists (reserved — RM not built
+      yet; SCCB detection works today)
+
+### 9.5 ADC/DAC bus
+
+- [ ] AD9226 on JC/JD + adcdac_clk from JXADC10; SONAR personality
+      (SW1): `adc_rate_ksps`/`adc_min/max/rms_code` live
+- [ ] Grounded input → rms near 0, min/max tight; floating → noise
+- [ ] `adc_rail_cnt` stays 0 (no clipping) with a real signal
+- [ ] AD9708 shares bits 7:0 — only after ADC path proven
+
+### 9.6 Sonar chain (last — most parts)
+
+- [ ] Piezo TX pair on screw terminals → JA9/JA10, twisted pair
+- [ ] AD8332: HILO/GAIN control from JA7/JA8, analog out → AD9226 SMA
+- [ ] SW1 → SONAR personality fires 1 Hz bursts: `sonar_bursts_cnt`
+      advances; hold a book ~30 cm away → `sonar_range_mm` ≈ 300
+- [ ] SiPM eval last (own bias supply, SMA → comparator → JA3)
+
+### 9.7 Regression after every session
+
+- [ ] All switches off, power cycle: boot chirp, lease, 75-key frame,
+      wired devices PRESENT, everything else sentinels — never a
+      fabricated in-range value

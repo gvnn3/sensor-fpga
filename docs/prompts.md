@@ -6,6 +6,12 @@ chronological order (newest first). Each entry has the date and time
 
 ---
 
+## 28 Jul 2026 20:30:00
+
+> I ordered the parts, add a bring-up checklist to the wiring doc
+
+---
+
 ## 28 Jul 2026 20:15:00
 
 > What is a good, small, speaker for the board? / Add the speaker to the
