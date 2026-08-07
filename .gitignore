@@ -10,3 +10,9 @@ clockInfo.txt
 *.elf
 hd_visual/
 .srcs/
+
+# Python
+__pycache__/
+
+# tricorder_ui frame logs (rotated .log.N escapes the *.log rule)
+tricorder-logs/
