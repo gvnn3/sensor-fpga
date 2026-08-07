@@ -223,7 +223,7 @@ schema and must not be confused with it:
 A second aperiodic frame, emitted by `net_task` once per attempted
 personality swap (`dfx_task` publishes the record and bumps
 `ui_live.dfx_seq`; same single-writer pattern as the switch events).
-Fixed shape, 12 lines:
+Fixed shape, 13 lines:
 
 ```
 type=dfx
@@ -235,6 +235,7 @@ to_name=PDM
 from_bytes=311452     partial bitstream sizes, bytes (0 = unknown)
 to_bytes=409856
 swap_us=1040          decouple->signature ICAP stream time
+flash_us=5810         QSPI slot read into the DDR bounce; 0 = DDR staging
 sig=ok                or "mismatch" - the swap failed, cur_rm is -1
 swaps=5               lifetime successful-swap counter (same as telemetry)
 uptime=62

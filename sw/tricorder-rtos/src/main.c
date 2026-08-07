@@ -50,20 +50,6 @@
 #define SPISR_TXE  0x4u
 #define FLASH_BOUNCE 0x85000000u
 
-/* axi_quad_spi (command mode) — flash slot reads */
-#define SPI_BASE   0x44A20000u
-#define SPI_SRR    (*(volatile u32 *)(SPI_BASE + 0x40))
-#define SPI_CR     (*(volatile u32 *)(SPI_BASE + 0x60))
-#define SPI_SR     (*(volatile u32 *)(SPI_BASE + 0x64))
-#define SPI_DTR    (*(volatile u32 *)(SPI_BASE + 0x68))
-#define SPI_DRR    (*(volatile u32 *)(SPI_BASE + 0x6C))
-#define SPI_SSR    (*(volatile u32 *)(SPI_BASE + 0x70))
-#define SPICR_BASE 0x086u  /* MANUAL_SS | MASTER | SPE */
-#define SPICR_INH  0x100u
-#define SPISR_RXE  0x1u
-#define SPISR_TXE  0x4u
-#define FLASH_BOUNCE 0x85000000u
-
 /* axi_dma MM2S -> AXIS ICAPE2 sink */
 #define DMA_MM2S_CR  (*(volatile u32 *)0x41E00000u)
 #define DMA_MM2S_SR  (*(volatile u32 *)0x41E00004u)
@@ -310,6 +296,7 @@ __attribute__((optimize("O2"))) static void dfx_task(void *arg)
             : 0u;
         ui_live.dfx_to_len = len;
         ui_live.dfx_us = (t1 - t0) / 100u;
+        ui_live.dfx_flash_us = t_spi / 100u;
         ui_live.dfx_ok = (sig == rm->sig);
         ui_live.dfx_seq++;
         xil_printf("DFX: RM-%s live in %u us (flash read %u us), sig=%08x %s\r\n",

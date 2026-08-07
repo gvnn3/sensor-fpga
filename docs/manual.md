@@ -198,7 +198,8 @@ telemetry — skip any frame that does not start with `seq=`.
 A third frame type, `type=dfx`, is emitted once per personality swap: it
 names the personality switched from and to (`from_name=A to_name=PDM`),
 the size in bytes of each partial bitstream, and how long the
-reconfiguration took (`swap_us=1040` is 1.04 ms). `sig=mismatch` means
+reconfiguration took (`swap_us=1040` is 1.04 ms; `flash_us` is the QSPI
+slot read that preceded it, 0 when staged from DDR). `sig=mismatch` means
 the load failed its signature check — you will also hear the alert
 sound.
 

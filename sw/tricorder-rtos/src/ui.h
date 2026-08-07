@@ -29,6 +29,7 @@ struct ui_live {
     volatile unsigned int dfx_from_len;  /* partial sizes, bytes; 0 = n/a */
     volatile unsigned int dfx_to_len;
     volatile unsigned int dfx_us;     /* decouple->sig ICAP stream time   */
+    volatile unsigned int dfx_flash_us; /* QSPI slot read time; 0 = DDR src */
     volatile int dfx_ok;              /* 1 signature matched, 0 mismatch  */
     volatile int      temp_centi;   /* ADT7420, centi-C (S4) */
     volatile unsigned swaps;        /* completed DFX swaps (S7) */

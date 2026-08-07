@@ -475,6 +475,7 @@ static void net_send_dfx(void)
     p = kv_u(p, "from_bytes", ui_live.dfx_from_len);
     p = kv_u(p, "to_bytes",  ui_live.dfx_to_len);
     p = kv_u(p, "swap_us",   ui_live.dfx_us);
+    p = kv_u(p, "flash_us",  ui_live.dfx_flash_us);
     p = kv_s(p, "sig",       ui_live.dfx_ok ? "ok" : "mismatch");
     p = kv_u(p, "swaps",     ui_live.swaps);
     p = kv_u(p, "uptime",    (u32)(xTaskGetTickCount() / configTICK_RATE_HZ));
