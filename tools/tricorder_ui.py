@@ -10,10 +10,17 @@ Stdlib only (tkinter + socket + threading).  Run on any machine on the
 same LAN as the board:
 
     python3 tools/tricorder_ui.py [--port 5001]
+
+Every received frame (telemetry, event, dfx) is also logged raw to
+tricorder-logs/telemetry.log, rotated at 1 MiB with at most 32 files
+kept.  --log-dir moves it; --no-log turns it off.
 """
 
 import argparse
+import logging
+import logging.handlers
 import math
+import os
 import socket
 import threading
 import time
@@ -76,12 +83,31 @@ def fmt_ip(v):
 
 # --- UDP listener thread ----------------------------------------------
 
+LOG_MAX_BYTES = 1024 * 1024   # rotate at 1 MiB
+LOG_KEEP = 32                 # active file + 31 backups
+
+
+def make_frame_logger(log_dir):
+    """Rotating logger for raw frames: telemetry.log, .1 .. .31."""
+    os.makedirs(log_dir, exist_ok=True)
+    lg = logging.getLogger("tricorder.frames")
+    lg.setLevel(logging.INFO)
+    lg.propagate = False
+    h = logging.handlers.RotatingFileHandler(
+        os.path.join(log_dir, "telemetry.log"),
+        maxBytes=LOG_MAX_BYTES, backupCount=LOG_KEEP - 1)
+    h.setFormatter(logging.Formatter("%(message)s"))
+    lg.addHandler(h)
+    return lg
+
+
 class Telemetry:
-    def __init__(self, port):
+    def __init__(self, port, log=None):
         self.lock = threading.Lock()
         self.frame = {}
         self.last_rx = 0.0
         self.frames = 0
+        self.log = log
         t = threading.Thread(target=self._rx, args=(port,), daemon=True)
         t.start()
 
@@ -90,9 +116,15 @@ class Telemetry:
         s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         s.bind(("", port))
         while True:
-            data, _ = s.recvfrom(4096)
+            data, addr = s.recvfrom(4096)
+            text = data.decode("ascii", "replace")
+            if self.log:
+                stamp = time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime())
+                self.log.info("# %s.%03d %s %d bytes\n%s",
+                              stamp, int(time.time() * 1000) % 1000,
+                              addr[0], len(data), text.rstrip("\n"))
             kv = {}
-            for line in data.decode("ascii", "replace").split("\n"):
+            for line in text.split("\n"):
                 if "=" in line:
                     k, _, v = line.partition("=")
                     kv[k] = v
@@ -342,12 +374,18 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--port", type=int, default=5001,
                     help="UDP telemetry port (default 5001)")
+    ap.add_argument("--log-dir", default="tricorder-logs",
+                    help="frame log directory (default ./tricorder-logs; "
+                         "1 MiB rotation, 32 files kept)")
+    ap.add_argument("--no-log", action="store_true",
+                    help="disable frame logging")
     args = ap.parse_args()
     if tk is None:
         raise SystemExit("tkinter missing - install with: "
                          "sudo apt install python3-tk")
+    log = None if args.no_log else make_frame_logger(args.log_dir)
     root = tk.Tk()
-    TricorderUI(root, Telemetry(args.port))
+    TricorderUI(root, Telemetry(args.port, log))
     root.mainloop()
 
 
