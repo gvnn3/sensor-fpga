@@ -17,6 +17,7 @@ or removed at runtime from the FPGA dynamic (partial reconfiguration) region.
 
 # Table of Contents
 
+37. [EXPERIMENT  7 Aug 2026 19:26:00 flash_us in the DFX Frame: QSPI Read Time on the Wire, and the QE-Clear Reflash Trap Again](#7-aug-2026-192600) :complete:
 36. [EXPERIMENT 28 Jul 2026 01:00:00 DFX Swap Telemetry: From/To Personality, Partial Sizes, Swap Time on the Wire](#28-jul-2026-010000) :complete:
 35. [EXPERIMENT 27 Jul 2026 23:59:00 QSPI Re-Flash: Programmer Clears QE, Stale Bitstream Kills TX, Fresh DFX Build Fixes Both](#27-jul-2026-235900) :complete:
 34. [EXPERIMENT 27 Jul 2026 22:45:00 Full-Schema Sensor Telemetry: Two AXI IIC Driver Bugs Between the Code and the Wire](#27-jul-2026-224500) :complete:
@@ -57,7 +58,88 @@ or removed at runtime from the FPGA dynamic (partial reconfiguration) region.
 
 ---
 
-# EXPERIMENT 28 Jul 2026 01:00:00 DFX Swap Telemetry: From/To Personality, Partial Sizes, Swap Time on the Wire :complete:
+# EXPERIMENT  7 Aug 2026 19:26:00 flash_us in the DFX Frame: QSPI Read Time on the Wire, and the QE-Clear Reflash Trap Again :complete:
+
+## 1. Hypothesis
+
+The QSPI slot read (`t_spi`) dominates swap latency ~5000:1 over the ICAP
+stream but was only visible on the UART. Can the `type=dfx` frame carry it
+as a separate `flash_us` key, measured on hardware through both load paths
+(JTAG-loaded and flash-resident standalone)?
+
+## 2. How
+
+- **Equipment:** Nexys A7-100T, JP1=QSPI, DHCP lease 192.168.1.126,
+  host listener on UDP 5001
+- **Software:** Vivado/Vitis 2025.2; FreeRTOS app rebuilt via
+  `sw/scripts/build_rtos.py` (77 KB text); swaps triggered by poking
+  `ui_live.req_rm` (elf symbol 0x80013F18, offset 0) over JTAG
+- **Benchmarks:** full personality rotation A→PDM→SONAR→B→A JTAG-loaded,
+  then A→PDM→A after standalone reflash
+
+### Key commands
+
+```bash
+~/Vivado/2025.2/Vitis/bin/vitis -s sw/scripts/build_rtos.py
+~/Vivado/2025.2/Vivado/bin/xsdb hw/scripts/run_rtos_dfx.xsdb
+# swap trigger: xsdb — stop; mwr 0x80013F18 <rm>; con
+~/Vivado/2025.2/Vivado/bin/vivado -mode batch -source hw/scripts/build_flash.tcl
+~/Vivado/2025.2/Vivado/bin/vivado -mode batch -source hw/scripts/program_flash.tcl
+# boot from flash without touching the board: boot_hw_device in hw_manager
+```
+
+## 3. Observations
+
+Code change: `ui_live.dfx_flash_us` published by `dfx_task`, emitted as
+`flash_us=` after `swap_us=`; dfx frame is now 13 lines (spec §1.8).
+Duplicate axi_quad_spi define block in main.c removed in the same pass.
+
+JTAG-loaded rotation, all `sig=ok`:
+
+| Swap | Partial bytes | swap_us (ICAP) | flash_us (QSPI) |
+|---|---|---|---|
+| A→PDM | 409,856 | 1043 µs | **5.946 s** |
+| PDM→SONAR | 371,724 | (frame lost — UDP broadcast, swap completed) | — |
+| SONAR→B | 308,980 | 791 µs | 4.481 s |
+| B→A | 311,452 | 793 µs | 4.496 s |
+
+Reflash: `build_flash.tcl` PASS (slots.h unchanged), `program_flash.tcl`
+Program/Verify PASS. First `boot_hw_device` → **DONE=0, INIT=1, no
+telemetry**: the programmer cleared the S25FL128S QE bit again (entry 35's
+trap) and the x4 config boot dies without it. One JTAG boot of the app
+(main() re-sets QE, non-volatile) then JPROGRAM → telemetry in **2 s**.
+
+Flash-resident standalone verification:
+
+| Swap | swap_us | flash_us |
+|---|---|---|
+| A→PDM | 1039 µs | **5.917 s** |
+| PDM→A | 793 µs | 4.496 s |
+
+## 4. Data analysis
+
+`flash_us` numbers land exactly on the entry-26 command-mode read
+measurements (4.9–6.1 s, CPU-bound) and `swap_us` on the entry-24
+compressed-stream record (0.78–1.06 ms) — the field is wired to the right
+timer and the two costs now separate on the wire: the reconfiguration
+itself is sub-millisecond; staging from flash is ~5000× more expensive.
+PDM's larger partial (410 KB vs ~310 KB) tracks linearly in both columns.
+
+The QE-clear trap is now a confirmed *every-reflash* cost, not a one-off:
+`program_flash.tcl` erase+program leaves CR1 QE=0 and the x4 boot
+bitstream cannot even read its own header. The app self-heals QE on any
+boot, so the recovery is one throwaway JTAG session. Worth automating.
+
+## 5. Ideas for future experiments
+
+- Append a QE-restore step (or a WRR QE=1 via xsdb/hw_manager) to
+  `program_flash.tcl` so reflash → flash-boot works with no JTAG app boot.
+- Chase the flash read: DMA-fed quad reads or wider SPI bursts could pull
+  the ~5 s staging toward the ~0.3 s wire minimum (entry 26 showed
+  CPU-bound, so the win is in the drain loop, not the clock).
+- Emit `flash_us` into the tricorder UI footer next to SWAPS.
+- UDP dfx frames drop (1 of 4 lost on this LAN); consider a 2× repeat or
+  piggybacking last-swap fields onto the periodic telemetry frame.
 
 ## 1. Hypothesis
 
