@@ -13,6 +13,7 @@
 
 #include "xparameters.h"
 #include "xiic_l.h"
+#include "xil_cache.h"
 #include "xil_printf.h"
 #include "xgpio.h"
 #include "ui.h"
@@ -327,6 +328,12 @@ __attribute__((optimize("O2"))) static void dfx_task(void *arg)
 
 int main(void)
 {
+    /* 16 KB I/D caches exist in hardware but nothing enabled them —
+     * every fetch was a MIG round trip (~400 cyc/op measured, entry 38).
+     * D-cache is write-through, so the ICAP DMA sees CPU writes. */
+    Xil_ICacheEnable();
+    Xil_DCacheEnable();
+
     XGpio_Initialize(&gpio, XPAR_AXI_GPIO_0_BASEADDR);
     XGpio_SetDataDirection(&gpio, 1, 0x0);
 

@@ -17,6 +17,7 @@ or removed at runtime from the FPGA dynamic (partial reconfiguration) region.
 
 # Table of Contents
 
+38. [EXPERIMENT  7 Aug 2026 21:05:00 The Drain Loop Was Innocent: Caches Were Never Enabled — Flash Staging 5.9 s → 0.28 s](#7-aug-2026-210500) :complete:
 37. [EXPERIMENT  7 Aug 2026 19:26:00 flash_us in the DFX Frame: QSPI Read Time on the Wire, and the QE-Clear Reflash Trap Again](#7-aug-2026-192600) :complete:
 36. [EXPERIMENT 28 Jul 2026 01:00:00 DFX Swap Telemetry: From/To Personality, Partial Sizes, Swap Time on the Wire](#28-jul-2026-010000) :complete:
 35. [EXPERIMENT 27 Jul 2026 23:59:00 QSPI Re-Flash: Programmer Clears QE, Stale Bitstream Kills TX, Fresh DFX Build Fixes Both](#27-jul-2026-235900) :complete:
@@ -55,6 +56,108 @@ or removed at runtime from the FPGA dynamic (partial reconfiguration) region.
 3. [EXPERIMENT  4 Jul 2026 07:34:03 OHWR Cores for the Dynamic Region of This Host (Alveo U250)](#4-jul-2026-073403) :complete:
 2. [EXPERIMENT  4 Jul 2026 07:26:08 Vitis Libraries Suitability for the FPGA Dynamic Region](#4-jul-2026-072608) :complete:
 1. [EXPERIMENT  4 Jul 2026 07:20:01 Repository and Notebook Initialization](#4-jul-2026-072001) :complete:
+
+---
+
+# EXPERIMENT  7 Aug 2026 21:05:00 The Drain Loop Was Innocent: Caches Were Never Enabled — Flash Staging 5.9 s → 0.28 s :complete:
+
+## 1. Hypothesis
+
+Entry 26 called the ~5 s QSPI slot read "CPU-bound, not wire-bound" and
+entry 37 blamed the PIO drain loop. Can a tighter drain loop reclaim a
+meaningful fraction of the staging time?
+
+## 2. How
+
+- **Equipment:** Nexys A7-100T, JP1=QSPI, 192.168.1.126, UART console
+  /dev/ttyUSB1 @ 115200
+- **Software:** Vivado/Vitis 2025.2; instrumentation → measure → fix →
+  verify, one JTAG build/load cycle each (~3 min per iteration)
+- **Benchmarks:** phase-timed `spi_xfer` (TX fill / TXE wait / RX drain,
+  TMR counter 1), then a 5-op MMIO/memory microbenchmark, then full
+  personality rotations with `flash_us` on the wire
+
+### Key commands
+
+```bash
+~/Vivado/2025.2/Vitis/bin/vitis -s sw/scripts/build_rtos.py
+~/Vivado/2025.2/Vivado/bin/xsdb hw/scripts/run_rtos_dfx.xsdb
+stty -F /dev/ttyUSB1 115200 raw -echo && cat /dev/ttyUSB1  # SPIPROF/BENCH
+# swap trigger: xsdb — stop; mwr <&ui_live> <rm>; con
+```
+
+## 3. Observations
+
+Phase profile, 409,856 B PDM partial, uncached (total 5.973 s):
+
+| Phase | Time |
+|---|---|
+| TX FIFO fill | 1.963 s |
+| run + TXE wait (the wire!) | **0.037 s** |
+| RX drain | 1.715 s |
+| unaccounted (chunk overhead, ISRs) | 2.258 s |
+
+Wire = 0.6% of the read. Every AXI access ≈ 400+ cycles, so a
+microbenchmark of raw op costs:
+
+| Op | Uncached | Cached | Ratio |
+|---|---|---|---|
+| SPI_SR MMIO read | 400 cyc | 28 cyc | 14× |
+| SPI_DTR MMIO write | 342 cyc | 33 cyc | 10× |
+| axi_timer TCR read | 400 cyc | 20 cyc | 20× |
+| **cached-region byte store** | **457 cyc** | **8 cyc** | **57×** |
+| bounce (0x85000000) store | 457 cyc | 8 cyc | 57× |
+
+A *memory* store costing 457 cycles was the tell: instruction fetches
+were going to the MIG. `xparameters.h` shows 16 KB I+D caches in
+hardware (`XPAR_MICROBLAZE_USE_ICACHE/DCACHE = 1`, write-through) — and
+no code anywhere called `Xil_ICacheEnable()/Xil_DCacheEnable()`. The
+entire instrument has run uncached-from-DDR since M3.
+
+Fix: enable both caches first thing in `main()`. Full rotation after:
+
+| Swap | Partial bytes | swap_us | flash_us before | flash_us after |
+|---|---|---|---|---|
+| →PDM | 409,856 | 1028 µs | 5.95–5.97 s | **0.278 s** |
+| →SONAR | 371,724 | 932 µs | — | 0.252 s |
+| →B | 308,980 | 775 µs | 4.48 s | 0.210 s |
+| →A | 311,452 | 781 µs | 4.50 s | 0.211 s |
+
+All `sig=ok`; sensors, DHCP, telemetry, sounds unaffected. Standalone
+image reflashed (QE-restore step in `program_flash.tcl` ran unattended).
+
+## 4. Data analysis
+
+**21× staging speedup from two lines.** The drain loop was never the
+problem — per-op MMIO cost was, and it was uniform across every AXI
+access because the *code itself* was fetched from DDR2 through the MIG
+on every instruction. The write-through D-cache keeps the ICAP DMA
+coherent for free (CPU writes reach DDR before `DMA_MM2S_CR` is
+touched), which is why nothing else needed to change.
+
+Two historical mysteries dissolve: entry 20's "-O0 was the culprit"
+16.2 s → 1.65 s arc was fighting fetch latency, not code quality, and
+the "tick interrupts add ~40x to the GPIO pacing loop" observation was
+ISR entry paying ~400 cycles per fetched instruction. Entry 26's
+"CPU-bound" verdict was right for the wrong reason.
+
+Remaining staging cost (~0.25 s for 400 KB ≈ 0.6 µs/byte ≈ 2 MMIO +
+loop) is now within ~2× of the PIO floor; the two settle delay loops
+(`spi_init`, `acc_probe`) shrink ~5× with caches but still exceed the
+4-AXI-clock soft-reset requirement by orders of magnitude.
+
+## 5. Ideas for future experiments
+
+- Rerun the M-gate soak (1 hr FreeRTOS) — cache enable is the largest
+  system-wide behavior change since M3; watch for any DMA/coherence
+  surprise on the acq path when a personality starts streaming S2MM.
+- Re-measure I2C sensor poll worst-case (entry: 224 ms budget) — likely
+  far smaller now; the 30 s exhaustive walk could run more often.
+- The 0.25 s residual splits ~3:1 fill+drain vs command overhead;
+  interleaved fill/drain with occupancy-register polling could reach
+  ~0.15 s if it ever matters.
+- Revisit XIP (entries 27–28) — fetch cost, not framing, may have
+  shaped some of those measurements.
 
 ---
 
