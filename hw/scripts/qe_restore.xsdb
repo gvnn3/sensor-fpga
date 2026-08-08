@@ -1,0 +1,19 @@
+# Restore the S25FL128S QE bit after flash programming cleared it
+# (notebook entries 35/37): boot the RTOS app once over JTAG — its
+# main() re-sets QE persistently — then hand back for a flash boot.
+# Run from repo root: xsdb hw/scripts/qe_restore.xsdb
+
+connect
+targets -set -filter {name =~ "xc7a100t*"}
+fpga build/dfx/full_a.bit
+after 1000
+targets -set -filter {name =~ "*MicroBlaze*#0*"}
+catch {stop}
+dow build/vitis-ws/tricorder_rtos/build/tricorder_rtos.elf
+con
+# main() checks QE and writes WRR before the scheduler starts; give it
+# a comfortable margin plus the WRR non-volatile program time.
+after 5000
+catch {stop}
+puts "QE_RESTORE: app ran, QE re-set"
+disconnect

@@ -25,6 +25,24 @@ program_hw_cfgmem $cfgmem          ;# boot bitstream at 0x0
 set_property PROGRAM.FILES [list build/flash/slots.mcs] $cfgmem
 program_hw_cfgmem $cfgmem          ;# data slots (partials + boot image)
 
-puts "PROGRAM_FLASH: PASS"
+# The programmer's erase/program leaves CR1 QE=0 (entries 35/37) and the
+# x4 boot bitstream cannot configure without it. Boot the app once over
+# JTAG (main() re-sets QE, non-volatile), then JPROGRAM to flash boot.
+puts "QE_RESTORE: booting app over JTAG to re-set the QE bit"
+close_hw_target
+exec [file join $::env(XILINX_VIVADO) bin xsdb] hw/scripts/qe_restore.xsdb \
+    >@ stdout 2>@ stderr
+open_hw_target
+catch {boot_hw_device [current_hw_device]}
+after 5000
+close_hw_target
+open_hw_target
+refresh_hw_device [current_hw_device]
+if {[get_property REGISTER.IR.BIT5_DONE [current_hw_device]] != 1} {
+    puts "PROGRAM_FLASH: FAIL (DONE=0 after flash boot)"
+    close_hw_manager
+    exit 1
+}
+puts "PROGRAM_FLASH: PASS (QE restored, booted from flash)"
 close_hw_manager
 exit 0
