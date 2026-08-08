@@ -105,6 +105,7 @@ class Telemetry:
     def __init__(self, port, log=None):
         self.lock = threading.Lock()
         self.frame = {}
+        self.dfx = {}          # last type=dfx swap-event frame
         self.last_rx = 0.0
         self.frames = 0
         self.log = log
@@ -129,13 +130,18 @@ class Telemetry:
                     k, _, v = line.partition("=")
                     kv[k] = v
             with self.lock:
-                self.frame = kv
-                self.last_rx = time.time()
+                # Aperiodic frames (type=event / type=dfx) must not
+                # displace the telemetry snapshot the display renders.
+                if kv.get("type") == "dfx":
+                    self.dfx = kv
+                elif "type" not in kv:
+                    self.frame = kv
+                    self.last_rx = time.time()
                 self.frames += 1
 
     def snapshot(self):
         with self.lock:
-            return dict(self.frame), self.last_rx, self.frames
+            return dict(self.frame), dict(self.dfx), self.last_rx, self.frames
 
 
 # --- look and feel -----------------------------------------------------
@@ -269,7 +275,7 @@ class TricorderUI:
     # -- main loop --
 
     def tick(self, root):
-        frame, last_rx, nframes = self.tele.snapshot()
+        frame, dfx, last_rx, nframes = self.tele.snapshot()
         age = time.time() - last_rx if last_rx else 1e9
         live = age < 3.0
         self.phase += 0.12 if live else 0.02
@@ -346,8 +352,13 @@ class TricorderUI:
                               "RSVD")
             i2c = frame.get("i2c", "?")
             swaps = frame.get("swaps", "?")
-            self.txt(45, 640, f"RM:{rm}  I2C:{i2c}  SWAPS:{swaps}",
-                     DIM, FONT_SM)
+            # flash_us arrives only on type=dfx swap frames: last known
+            try:
+                flash = f"{int(dfx['flash_us']) / 1e6:.2f}s"
+            except (KeyError, ValueError):
+                flash = "--"
+            self.txt(45, 640, f"RM:{rm}  I2C:{i2c}  SWAPS:{swaps}"
+                     f"  FLASH:{flash}", DIM, FONT_SM)
         self.txt(415, 640, f"FRAMES:{nframes}", DIM, FONT_SM, "e")
 
         # GEO / MET / BIO buttons
