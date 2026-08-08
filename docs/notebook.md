@@ -17,6 +17,7 @@ or removed at runtime from the FPGA dynamic (partial reconfiguration) region.
 
 # Table of Contents
 
+39. [EXPERIMENT  7 Aug 2026 23:14:00 1 hr Cache-Enable Soak: 3579/3579 Frames, 44/44 Swaps, Zero Anomalies](#7-aug-2026-231400) :complete:
 38. [EXPERIMENT  7 Aug 2026 21:05:00 The Drain Loop Was Innocent: Caches Were Never Enabled — Flash Staging 5.9 s → 0.28 s](#7-aug-2026-210500) :complete:
 37. [EXPERIMENT  7 Aug 2026 19:26:00 flash_us in the DFX Frame: QSPI Read Time on the Wire, and the QE-Clear Reflash Trap Again](#7-aug-2026-192600) :complete:
 36. [EXPERIMENT 28 Jul 2026 01:00:00 DFX Swap Telemetry: From/To Personality, Partial Sizes, Swap Time on the Wire](#28-jul-2026-010000) :complete:
@@ -56,6 +57,82 @@ or removed at runtime from the FPGA dynamic (partial reconfiguration) region.
 3. [EXPERIMENT  4 Jul 2026 07:34:03 OHWR Cores for the Dynamic Region of This Host (Alveo U250)](#4-jul-2026-073403) :complete:
 2. [EXPERIMENT  4 Jul 2026 07:26:08 Vitis Libraries Suitability for the FPGA Dynamic Region](#4-jul-2026-072608) :complete:
 1. [EXPERIMENT  4 Jul 2026 07:20:01 Repository and Notebook Initialization](#4-jul-2026-072001) :complete:
+
+---
+
+# EXPERIMENT  7 Aug 2026 23:14:00 1 hr Cache-Enable Soak: 3579/3579 Frames, 44/44 Swaps, Zero Anomalies :complete:
+
+## 1. Hypothesis
+
+Entry 38's cache enable is the largest system-wide behavior change
+since M3. Does the flash-resident instrument survive an hour of
+continuous operation with periodic DFX personality rotations — no
+reboots, no signature mismatches, no telemetry loss, no DMA/coherence
+surprises?
+
+## 2. How
+
+- **Equipment:** Nexys A7-100T, flash-resident standalone image
+  (entry 38 build), JP1=QSPI, 192.168.1.126, UART on /dev/ttyUSB1
+- **Software:** host-side soak monitor (UDP 5001): seq-gap counter,
+  uptime-reset/reboot detector, dfx signature audit, temp/i2c health;
+  full A→PDM→SONAR→B→A rotation fired every 5 min via xsdb poke of
+  `ui_live.req_rm`; UART captured in parallel
+- **Benchmarks:** 3600 s wall clock, 11 rotations = 44 swaps
+
+### Key commands
+
+```bash
+python3 soak.py           # scratchpad harness; report below
+timeout 3700 cat /dev/ttyUSB1 > uart_soak.log
+```
+
+## 3. Observations
+
+```
+SOAK REPORT
+  duration: 3600s
+  telemetry frames: 3579  (seq 696..4274)
+  seq gaps: 0 (0 frames lost)
+  reboots/uptime resets: 0
+  max rx stall: 1.7s
+  dfx frames: 44  sig ok/bad: 44/0
+  flash_us: min 209730 max 278211 avg 237924
+  swap_us:  min 775 max 1027 avg 878
+  temp_cc: 3400..3431
+  frames with i2c!=1: 0
+SOAK: PASS
+```
+
+UART log: zero errors/asserts/mismatches; every swap line reads
+`sig=... OK`. seq span 696..4274 is exactly 3579 frames — **not one
+UDP frame dropped in the hour**, telemetry and all 44 dfx event frames
+included.
+
+## 4. Data analysis
+
+Clean bill. The write-through D-cache keeps the CPU→DDR→ICAP DMA path
+coherent under repeated swaps (44 cycles through all four
+personalities, signatures register-exact every time). flash_us holds a
+tight 0.21–0.28 s band tracking partial size linearly — no drift, no
+outliers — and swap_us stays in the 0.78–1.03 ms compressed-stream
+band. Die temp flat at ~34 °C, I2C never dropped a device, and the
+1.7 s max stall is ordinary listener-side jitter, not board silence.
+Entry 38's coherence worry (the one open risk of enabling caches) is
+retired for every path the instrument currently exercises; the unused
+S2MM acq path remains untested and keeps its invalidate caveat for
+when a streaming personality lands.
+
+## 5. Ideas for future experiments
+
+- Soak the S2MM direction when a streaming personality (PDM→DMA ring)
+  exists — that is the one cache-coherence path this hour did not touch
+  (needs `Xil_DCacheInvalidateRange` on the ring before reads).
+- Overnight 8 hr soak with the tricorder UI logging enabled end to end
+  (tools/tricorder_ui.py rotation gives ~8 h of history at 1 Hz —
+  matches one soak exactly).
+- Re-time the I2C sensor poll worst case with caches on; the 224 ms
+  budget in the spec is now stale by roughly an order of magnitude.
 
 ---
 
