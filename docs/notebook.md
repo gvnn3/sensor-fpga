@@ -17,6 +17,7 @@ or removed at runtime from the FPGA dynamic (partial reconfiguration) region.
 
 # Table of Contents
 
+41. [EXPERIMENT 29 Oct 2026 23:27:00 Scripted DFX Swaps: Four Personalities at ICAP Wire Speed, QSPI the Only Cost](#29-oct-2026-232700) :complete:
 40. [EXPERIMENT 29 Oct 2026 21:35:00 Agent Run Skill: Scripted Board Boot, Headless GUI Drive, and XWD Screenshots](#29-oct-2026-213500) :complete:
 39. [EXPERIMENT  7 Aug 2026 23:14:00 1 hr Cache-Enable Soak: 3579/3579 Frames, 44/44 Swaps, Zero Anomalies](#7-aug-2026-231400) :complete:
 38. [EXPERIMENT  7 Aug 2026 21:05:00 The Drain Loop Was Innocent: Caches Were Never Enabled — Flash Staging 5.9 s → 0.28 s](#7-aug-2026-210500) :complete:
@@ -58,6 +59,130 @@ or removed at runtime from the FPGA dynamic (partial reconfiguration) region.
 3. [EXPERIMENT  4 Jul 2026 07:34:03 OHWR Cores for the Dynamic Region of This Host (Alveo U250)](#4-jul-2026-073403) :complete:
 2. [EXPERIMENT  4 Jul 2026 07:26:08 Vitis Libraries Suitability for the FPGA Dynamic Region](#4-jul-2026-072608) :complete:
 1. [EXPERIMENT  4 Jul 2026 07:20:01 Repository and Notebook Initialization](#4-jul-2026-072001) :complete:
+
+---
+
+# EXPERIMENT 29 Oct 2026 23:27:00 Scripted DFX Swaps: Four Personalities at ICAP Wire Speed, QSPI the Only Cost :complete:
+
+## 1. Hypothesis
+
+Can an xsdb poke of `ui_live.req_rm` replace the SW0-SW3 flip so an
+agent exercises every DFX personality hands-off, and do the four
+flash-resident swaps show the same per-byte cost, i.e. are both the
+ICAP stream and the QSPI read linear in partial size?
+
+## 2. How
+
+- **Equipment:** Nexys A7-100T on USB (FT2232 JTAG + UART), JP1=QSPI,
+  partials resident in flash (entry 38 image), I/D caches on; board had
+  been JTAG-booted earlier in the session via `run_rtos_dfx.xsdb`;
+  point-to-point Ethernet to host, telemetry broadcast on UDP 5001
+- **Software:** Vivado/Vitis 2025.2 xsdb, `.claude/skills/run-sensor-fpga/driver.py`
+  (commit 4fb3386), host `nm` for the ELF symbol, Python 3 UDP listener
+  thread for `type=dfx` frames
+- **Benchmarks:** one `swap pdm` from A, then `rotate` PDM→SONAR→B→A in
+  a single xsdb session with 3 s between pokes; timings read from the
+  board's own `swap_us` / `flash_us` fields in the dfx frame and
+  cross-checked against the UART line
+
+### Key commands
+
+```bash
+D=.claude/skills/run-sensor-fpga/driver.py
+python3 $D console
+python3 $D swap pdm
+python3 $D rotate            # --order pdm,sonar,b,a --gap 3
+python3 $D swap a            # already there -> "nothing to do - PASS"
+grep -E 'DFX: RM-.* live|MISMATCH' /tmp/tricorder-run/console.log
+```
+
+Poke mechanics (what the driver writes to xsdb per hop):
+
+```tcl
+connect
+targets -set -filter {name =~ "*MicroBlaze*#0*"}
+stop
+mwr 0x80013FA0 0          ;# &ui_live (nm on the ELF) == &ui_live.req_rm; 0=PDM 1=SONAR 2=B 3=A
+con
+```
+
+## 3. Observations
+
+| hop | from → to | partial (B) | swap_us | flash_us | sig |
+|---|---|---|---|---|---|
+| swap | A → PDM | 409856 | **1028** | **278211** | 9D3A0001 OK |
+| rotate 0 | PDM → SONAR | 371724 | 932 | 252341 | 50A40001 OK |
+| rotate 1 | SONAR → B | 308980 | 775 | 209746 | 5B5B5B5B OK |
+| rotate 2 | B → A | 311452 | 781 | 211405 | A5A5A5A5 OK |
+
+Wall clock: `swap pdm` 2.9 s end to end (xsdb connect dominates);
+`rotate` 3 hops 8.8 s with the 3 s gaps. 4/4 dfx frames received, every
+frame's `to` matched the poke, no `MISMATCH` or `DMA: error` on the
+UART. `rotate` skipped its first hop ("already on PDM"); `swap a` after
+the rotation exited 0 with no poke.
+
+UART per hop, e.g.:
+
+```
+DFX: RM-SONAR live in 932 us (flash read 252341 us), sig=50A40001 OK
+```
+
+GUI (`tools/tricorder_ui.py`) started after the rotation showed
+`RM:HEL-A SWAPS:4 FLASH:--` — the flash figure only arrives in the
+aperiodic dfx frame, which that instance never saw.
+
+`&ui_live` is `0x80013FA0` in this ELF; entry 39's soak used
+`0x80013F18` on its build.
+
+## 4. Data analysis
+
+Per-byte rates, computed from the table:
+
+| personality | ICAP stream (MB/s) | QSPI read (MB/s) |
+|---|---|---|
+| PDM | 398.7 | 1.473 |
+| SONAR | 398.8 | 1.473 |
+| B | 398.7 | 1.473 |
+| A | 398.8 | 1.473 |
+
+**Both costs are purely linear in partial size.** The DMA→ICAPE2 path
+runs at **398.7 MB/s = 100 MHz × 4 B** to four significant figures:
+one config word per clock, no stalls, no per-swap fixed overhead
+visible at the microsecond scale. The decouple/recouple/signature
+check adds nothing measurable on top of the stream.
+
+The QSPI read is **1.473 MB/s**, i.e. ~270× slower than the ICAP, and
+is the entire swap latency a user sees (0.21-0.28 s). At that rate the
+flash path is doing roughly 11.8 Mbit/s — far below what quad-SPI at
+the configured clock can deliver, so this is the bounce-copy loop
+(`spi_flash_read` into `FLASH_BOUNCE`, cache on per entry 38) that is
+the bottleneck, not the flash die. Entry 38's 5.9 s → 0.28 s was the
+cache; the next order of magnitude is in the read routine itself.
+
+**The poke is a faithful switch.** `ui_task` only rewrites `req_rm` on a
+switch *change*, so a JTAG-written value persists until `dfx_task`
+consumes it; `stop`/`con` around the `mwr` cost nothing observable
+(tick count on the UART did not skip). Resolving `&ui_live` from the ELF
+each run is required — it has moved 0x88 bytes between builds already.
+
+**Agent-complete demo.** With `swap`/`rotate` nothing in the flow needs a
+hand on the board; `boot && rotate` is a 25 s hardware regression check
+for anything touching `dfx_task`, the DMA/ICAP path, or the flash slots.
+
+## 5. Ideas for future experiments
+
+- Profile `spi_flash_read`: 1.47 MB/s suggests byte-wise polling of the
+  AXI Quad SPI FIFO. Try the IP's 256-byte FIFO in burst mode or DMA
+  from the XIP window; target ≥10 MB/s, which would put a swap under
+  40 ms.
+- Add `--repeat N` to `rotate` and a soak mode that logs
+  `swap_us`/`flash_us` per hop to CSV; check variance over 1000 swaps
+  (entry 39 did 44).
+- Measure the fixed cost by swapping to a deliberately tiny partial
+  (or the same personality with a forced reload) to confirm the
+  intercept is zero.
+- Have `swap` optionally start the GUI first and screenshot the footer
+  so `FLASH:` is asserted visually as well as from the frame.
 
 ---
 
