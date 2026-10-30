@@ -72,12 +72,34 @@ Expect in the PNG: `SEQ` small, UP a few seconds, AMB/CO2/SCD live,
 `RM:HEL-A SWAPS:0 FLASH:--`. Console tail should show
 `NET: telemetry seq=0 keys=75 len=1078`.
 
-**DFX swaps are switch-driven.** `dfx_task` in
-`sw/tricorder-rtos/src/main.c` only swaps when the ui task sees SW0-SW3
-change. Nothing in the script rotates personalities, so `SWAPS:0` after
-boot is correct. A human flips a switch; then `console.log` gets
-`DFX: swapping to RM-PDM from FLASH ... sig=9D3A0001 OK` and the GUI
-footer shows `RM:PDM SWAPS:1 FLASH:0.28s`.
+**DFX swaps** are switch-driven on the board (`dfx_task` in
+`sw/tricorder-rtos/src/main.c` acts on `ui_live.req_rm`, which the ui
+task sets from SW0-SW3), so `SWAPS:0` right after boot is correct. The
+driver pokes the same field over xsdb:
+
+```bash
+python3 $D swap pdm      # one hop; waits for the type=dfx frame, asserts sig=ok
+python3 $D rotate        # pdm -> sonar -> b -> a in one xsdb session
+```
+
+Output (measured, flash-resident partials):
+
+```
+hop from   to      swap_us  flash_us  sig
+0   PDM    SONAR       932    252341  ok
+1   SONAR  B           775    209746  ok
+2   B      A           781    211405  ok
+3/3 dfx frames in 8.8s - PASS
+```
+
+Exit 1 on a missing frame, `sig!=ok`, wrong `to`, or `MISMATCH` /
+`DMA: error` in `console.log`. A hop to the personality already loaded
+is skipped ("already on A"); `swap` to the current one prints
+`nothing to do - PASS`. Console shows
+`DFX: RM-PDM live in 1028 us (flash read 278211 us), sig=9D3A0001 OK`
+per hop. Run `ui` *before* `swap` if you want the footer to show
+`FLASH:0.28s` - the GUI only learns flash time from the aperiodic dfx
+frame.
 
 Cleanup:
 
@@ -94,6 +116,8 @@ user's own `cat` gets nothing while the driver's capture runs.
 | `boot` | runs `hw/scripts/run_rtos_dfx.xsdb`; fails unless xsdb prints `RTOS_DFX: running` |
 | `wait-boot [--timeout 90]` | wait for banner + link up after the *last* banner in console.log |
 | `telem [--port] [--timeout]` | print one telemetry frame (skips `type=dfx`/`type=event`) |
+| `swap pdm\|sonar\|a\|b [--gap] [--timeout]` | xsdb `stop; mwr &ui_live.req_rm; con`, wait for dfx frame, assert |
+| `rotate [--order pdm,sonar,b,a]` | same, N hops in one xsdb session, `--gap` 3 s between pokes |
 | `ui [--port]` | launch GUI on `$DISPLAY` (default :0), wait for window |
 | `fake [--port] [--count] [--interval] [--dfx]` | send `sample_frame.txt` to 127.0.0.1 |
 | `shot [--out png]` | `xwd -id <window>` -> PNG via Pillow |
@@ -139,6 +163,13 @@ Firmware tests are hardware runs - see `docs/notebook.md`.
   ones at 958x1189 (window manager). Don't hardcode coordinates.
 - **`docs/demo.md` says JTAG staging takes "a couple of minutes".**
   Measured: 12 s for the whole xsdb script, twice.
+- **`&ui_live` moves between builds** (0x80013F18 in notebook entry 39,
+  0x80013FA0 now). `swap`/`rotate` read it from the ELF with `nm` every
+  run; never hardcode it. The poke targets the first field, `req_rm`.
+- **dfx frames ride net_task's loop.** The `type=dfx` UDP frame lands up
+  to ~1 s after the swap, so `rotate` listens on a thread while xsdb runs
+  and matches frames to hops by order. `--gap` below ~1.5 s risks
+  out-of-order or merged hops.
 - **Fake frames must omit `type=`.** The GUI keeps a separate snapshot
   for `type=dfx`/`type=event`; a frame with `type=` never updates the
   main page. `fake --dfx` sends a proper swap frame (sets `FLASH:0.28s`).
@@ -155,6 +186,9 @@ Firmware tests are hardware runs - see `docs/notebook.md`.
   retry.
 - **`no 'TR-590 MK VII TRICORDER' window on :0`**: UI not running, or
   wrong display. `driver.py --display :0 ui`.
+- **`xsdb poked 0/1 (board off? stale hw_server?)`**: `puts "POKE n"`
+  never printed. Same fix as boot failures.
+- **`ui_live not in ... symtab`**: ELF missing or stripped; `make -C hw rtos`.
 - **`no telemetry on udp/5001 in 5.0s`**: board not booted or NIC on a
   different link. `telem` binds all interfaces; the board broadcasts to
   255.255.255.255.

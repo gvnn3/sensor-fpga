@@ -12,6 +12,10 @@ to do; all state lives under --work (default: $TRICORDER_WORK or
     wait-boot     block until the RTOS banner shows in console.log
     telem         grab one UDP telemetry frame from the board -> stdout
     kill-console  release /dev/ttyUSB1
+    swap RM       poke ui_live.req_rm over xsdb (RM = pdm|sonar|a|b), wait
+                  for the type=dfx frame, assert sig=ok and to==RM
+    rotate        pdm -> sonar -> b -> a in one xsdb session; table of
+                  swap_us / flash_us per hop; exit 1 on any bad hop
 
   GUI commands (work with or without the board)
     ui [--port N] launch tools/tricorder_ui.py on DISPLAY (default :0)
@@ -34,6 +38,7 @@ import socket
 import struct
 import subprocess
 import sys
+import threading
 import time
 
 REPO = pathlib.Path(__file__).resolve().parents[3]
@@ -41,6 +46,9 @@ HERE = pathlib.Path(__file__).resolve().parent
 XSDB = pathlib.Path.home() / "Vivado/2025.2/Vivado/bin/xsdb"
 UART = "/dev/ttyUSB1"
 WIN_TITLE = "TR-590 MK VII TRICORDER"
+ELF = REPO / "build/vitis-ws/tricorder_rtos/build/tricorder_rtos.elf"
+RM_IDS = {"pdm": 0, "sonar": 1, "b": 2, "a": 3}      # ui_live.req_rm encoding
+RM_NAMES = {v: k.upper() for k, v in RM_IDS.items()}
 
 
 def work_dir(args):
@@ -133,6 +141,123 @@ def cmd_telem(args):
     n = sum(1 for l in txt.splitlines() if "=" in l)
     print(f"# {n} keys", file=sys.stderr)
     return 0 if n == 75 else 1
+
+
+# ---- DFX swaps -------------------------------------------------------
+
+def ui_live_addr():
+    """&ui_live from the ELF symtab - it moves between builds (0x80013F18
+    in entry 39, 0x80013FA0 now), so never hardcode it."""
+    r = subprocess.run(["nm", str(ELF)], capture_output=True, text=True)
+    for line in r.stdout.splitlines():
+        parts = line.split()
+        if len(parts) == 3 and parts[2] == "ui_live":
+            return int(parts[0], 16)
+    sys.exit(f"ui_live not in {ELF} symtab (nm rc={r.returncode})")
+
+
+class DfxListener(threading.Thread):
+    """Collect type=dfx frames from the telemetry port while xsdb pokes."""
+
+    def __init__(self, port):
+        super().__init__(daemon=True)
+        self.frames, self.stop = [], threading.Event()
+        self.s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self.s.bind(("", port))
+        self.s.settimeout(0.5)
+
+    def run(self):
+        while not self.stop.is_set():
+            try:
+                data, _ = self.s.recvfrom(4096)
+            except socket.timeout:
+                continue
+            kv = dict(l.partition("=")[::2] for l in data.decode("ascii", "replace").splitlines() if "=" in l)
+            if kv.get("type") == "dfx":
+                self.frames.append(kv)
+
+
+def xsdb_poke(work, addr, ids, gap_s):
+    """One xsdb session: stop; mwr &ui_live.req_rm id; con - per id."""
+    tcl = work / "poke.tcl"
+    lines = ["connect", 'targets -set -filter {name =~ "*MicroBlaze*#0*"}']
+    for i, rm in enumerate(ids):
+        if i:
+            lines.append(f"after {int(gap_s * 1000)}")
+        lines += ["stop", f"mwr 0x{addr:08X} {rm}", "con",
+                  f'puts "POKE {rm}"']
+    lines.append("disconnect")
+    tcl.write_text("\n".join(lines) + "\n")
+    r = subprocess.run([str(XSDB), str(tcl)], cwd=REPO, text=True,
+                       capture_output=True, timeout=120)
+    pokes = r.stdout.count("POKE ")
+    if pokes != len(ids):
+        print(r.stdout[-800:], r.stderr[-800:], file=sys.stderr)
+        sys.exit(f"xsdb poked {pokes}/{len(ids)} (board off? stale hw_server?)")
+
+
+def current_rm(port, timeout):
+    try:
+        f = recv_frame(port, timeout)
+    except socket.timeout:
+        sys.exit(f"no telemetry on udp/{port} - board not booted?")
+    kv = dict(l.partition("=")[::2] for l in f.splitlines() if "=" in l)
+    return int(kv.get("rm", -1))
+
+
+def run_swaps(args, ids):
+    w = work_dir(args)
+    if not XSDB.exists():
+        sys.exit(f"xsdb not found at {XSDB}")
+    addr = ui_live_addr()
+    cur = current_rm(args.port, 5)
+    if ids and ids[0] == cur:
+        print(f"already on {RM_NAMES.get(cur, cur)}; skipping first hop")
+        ids = ids[1:]
+    if not ids:
+        print("nothing to do - PASS")
+        return 0
+    lst = DfxListener(args.port)
+    lst.start()
+    t0 = time.time()
+    xsdb_poke(w, addr, ids, args.gap)
+    # dfx frame rides net_task's 1 Hz loop; give the last hop time to land
+    deadline = time.time() + args.timeout
+    while len(lst.frames) < len(ids) and time.time() < deadline:
+        time.sleep(0.2)
+    lst.stop.set()
+    print(f"{'hop':<4}{'from':<7}{'to':<7}{'swap_us':>8}{'flash_us':>10}  sig")
+    ok = True
+    for i, rm in enumerate(ids):
+        if i >= len(lst.frames):
+            print(f"{i:<4}{'-':<7}{RM_NAMES[rm]:<7}{'-':>8}{'-':>10}  MISSING")
+            ok = False
+            continue
+        f = lst.frames[i]
+        good = f.get("sig") == "ok" and f.get("to") == str(rm)
+        ok &= good
+        print(f"{i:<4}{f.get('from_name','?'):<7}{f.get('to_name','?'):<7}"
+              f"{f.get('swap_us','?'):>8}{f.get('flash_us','?'):>10}  "
+              f"{f.get('sig','?')}{'' if good else '  <-- BAD'}")
+    log = w / "console.log"
+    if log.exists():
+        tail = log.read_text(errors="replace")[-20000:]
+        bad = [l for l in tail.splitlines() if "MISMATCH" in l or "DMA: error" in l]
+        if bad:
+            print("console:", *bad[-3:], sep="\n  ")
+            ok = False
+    print(f"{len(lst.frames)}/{len(ids)} dfx frames in {time.time() - t0:.1f}s - "
+          + ("PASS" if ok else "FAIL"))
+    return 0 if ok else 1
+
+
+def cmd_swap(args):
+    return run_swaps(args, [RM_IDS[args.rm]])
+
+
+def cmd_rotate(args):
+    return run_swaps(args, [RM_IDS[x] for x in args.order.split(",")])
 
 
 # ---- GUI -------------------------------------------------------------
@@ -229,6 +354,16 @@ def main():
     p.set_defaults(fn=cmd_wait_boot)
     p = sub.add_parser("telem"); p.add_argument("--port", type=int, default=5001)
     p.add_argument("--timeout", type=float, default=5); p.set_defaults(fn=cmd_telem)
+    for name, fn in (("swap", cmd_swap), ("rotate", cmd_rotate)):
+        p = sub.add_parser(name)
+        if name == "swap":
+            p.add_argument("rm", choices=sorted(RM_IDS))
+        else:
+            p.add_argument("--order", default="pdm,sonar,b,a")
+        p.add_argument("--port", type=int, default=5001)
+        p.add_argument("--gap", type=float, default=3.0, help="s between pokes")
+        p.add_argument("--timeout", type=float, default=10, help="s to wait for last dfx frame")
+        p.set_defaults(fn=fn)
     p = sub.add_parser("ui"); p.add_argument("--port", type=int, default=5001)
     p.set_defaults(fn=cmd_ui)
     sub.add_parser("kill-ui").set_defaults(fn=cmd_kill_ui)
