@@ -81,7 +81,7 @@ Terminal 2 — program, stage, boot (from the repo root):
 The script does four things: programs `build/dfx/full_a.bit` (static
 region + personality A), copies the four compressed (~310-420 KiB) partial bitstreams into
 DDR2 at 0x81000000–0x84000000 with their lengths at 0x80FFFFE8–F4
-(JTAG staging takes a couple of minutes — be patient), downloads the
+(the whole script, staging included, finishes in about 12 s), downloads the
 FreeRTOS ELF, and starts the CPU. It then disconnects; the board runs
 free.
 
@@ -155,5 +155,5 @@ its first transfer — notebook entry 17).
 | `xsdb` can't find a target | Board off / cable out; re-check `lsusb`. Kill stale `hw_server` processes if a previous session crashed |
 | Console silent | Wrong tty (UART is `ttyUSB1`, JTAG side is `ttyUSB0`); or two readers fighting — only one `cat` may hold the port |
 | Garbage on console | `stty -F /dev/ttyUSB1 115200 raw -echo` not applied |
-| `sig=...FFFFFFFF` or `MISMATCH` | Partials not staged (script must run to completion — staging is slow) or stale partials vs bitstream: rebuild `make -C hw dfx` and rerun |
+| `sig=...FFFFFFFF` or `MISMATCH` | Partials not staged (script must print `RTOS_DFX: running`) or stale partials vs bitstream: rebuild `make -C hw dfx` and rerun |
 | Demo boots but no swaps | Length words unset — the app skips personalities whose staged length is 0; rerun the xsdb script rather than programming the bitstream alone |
