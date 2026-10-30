@@ -17,6 +17,7 @@ or removed at runtime from the FPGA dynamic (partial reconfiguration) region.
 
 # Table of Contents
 
+40. [EXPERIMENT 29 Oct 2026 21:35:00 Agent Run Skill: Scripted Board Boot, Headless GUI Drive, and XWD Screenshots](#29-oct-2026-213500) :complete:
 39. [EXPERIMENT  7 Aug 2026 23:14:00 1 hr Cache-Enable Soak: 3579/3579 Frames, 44/44 Swaps, Zero Anomalies](#7-aug-2026-231400) :complete:
 38. [EXPERIMENT  7 Aug 2026 21:05:00 The Drain Loop Was Innocent: Caches Were Never Enabled — Flash Staging 5.9 s → 0.28 s](#7-aug-2026-210500) :complete:
 37. [EXPERIMENT  7 Aug 2026 19:26:00 flash_us in the DFX Frame: QSPI Read Time on the Wire, and the QE-Clear Reflash Trap Again](#7-aug-2026-192600) :complete:
@@ -57,6 +58,123 @@ or removed at runtime from the FPGA dynamic (partial reconfiguration) region.
 3. [EXPERIMENT  4 Jul 2026 07:34:03 OHWR Cores for the Dynamic Region of This Host (Alveo U250)](#4-jul-2026-073403) :complete:
 2. [EXPERIMENT  4 Jul 2026 07:26:08 Vitis Libraries Suitability for the FPGA Dynamic Region](#4-jul-2026-072608) :complete:
 1. [EXPERIMENT  4 Jul 2026 07:20:01 Repository and Notebook Initialization](#4-jul-2026-072001) :complete:
+
+---
+
+# EXPERIMENT 29 Oct 2026 21:35:00 Agent Run Skill: Scripted Board Boot, Headless GUI Drive, and XWD Screenshots :complete:
+
+## 1. Hypothesis
+
+Can the whole demo — board boot over xsdb, UART console, telemetry
+capture, the Tk tricorder GUI, and a screenshot of it — be driven by one
+committed script so a future agent (or human) reproduces it from a
+cold shell without rereading `docs/demo.md`? And can the GUI be
+exercised with no board attached?
+
+## 2. How
+
+- **Equipment:** Nexys A7-100T on USB (FT2232, JTAG + UART on
+  `/dev/ttyUSB1`), JP1=QSPI so the flash image is already running at
+  power-on; point-to-point Ethernet to the host (no DHCP server)
+- **Software:** Ubuntu, Linux 7.0.0-28, Vivado/Vitis 2025.2 xsdb,
+  Python 3 + tkinter 8.6 + Pillow, x11-utils (`xwd`, `xwininfo`),
+  Wayland session with XWayland on `DISPLAY=:0`. Committed artifacts
+  `build/dfx/full_a.bit`, four `rm_*_partial.bin`, `tricorder_rtos.elf`
+  (entry 38 build)
+- **Benchmarks:** `hw/scripts/run_rtos_dfx.xsdb` end to end; GUI fed
+  by real frames and by a canned frame; window capture
+
+### Key commands
+
+```bash
+D=.claude/skills/run-sensor-fpga/driver.py
+# board path
+python3 $D console && python3 $D boot && python3 $D wait-boot
+python3 $D telem | head -3
+python3 $D ui && sleep 3 && python3 $D shot --out /tmp/tricorder-run/board.png
+# headless GUI path (no board)
+python3 $D ui --port 5002
+python3 $D fake --port 5002 --dfx --count 2
+sleep 2 && python3 $D shot --out /tmp/tricorder-run/fake.png
+python3 $D kill-ui; python3 $D kill-console
+```
+
+## 3. Observations
+
+Manual run first (`docs/demo.md` procedure), then the same through the
+driver, twice.
+
+| Step | Result |
+|---|---|
+| `run_rtos_dfx.xsdb` (program + stage 4 partials + ELF + con) | **12 s** both runs; `docs/demo.md` said "a couple of minutes" |
+| Console after boot | `QSPI: JEDEC 01 20 18`, ADT7420 + SCD41 PRESENT, I2C-EXT walk 3 devices (0x39, 0x62, 0x77), `NET: link up`, `NET: telemetry seq=0 keys=75 len=1078` |
+| `nc -ulp 5001` / `driver.py telem` | 75-key frame every second; `ip=0`, `link=1` |
+| GUI with board | SEQ 139 UP 00:02:22, AMB 28.18 °C, CO2 474 ppm, SCD 23.25 °C / 51 %, footer `RM:PDM SWAPS:1 FLASH:0.28s` |
+| GUI with canned frame + dfx frame | SEQ 1001, FRAMES:3, SCAN + LINK lamps, `FLASH:0.28s` |
+| DFX swaps after boot | **0** until a switch is flipped |
+
+Console shows two `RTOS: FreeRTOS on MicroBlaze` banners per session:
+the flash-boot one already running at power-on, then the JTAG-loaded
+ELF.
+
+Things that did not work on the way:
+
+```
+X Error of failed request:  BadMatch (invalid parameter attributes)
+  Major opcode of failed request:  73 (X_GetImage)
+```
+
+`xwd -root` under XWayland. No grim, scrot, ImageMagick `import` or
+gnome-screenshot on the host. Pillow raised
+`UnidentifiedImageError` on the `.xwd` file (no XWD reader).
+
+First driver run: `console already running` with no `cat` process, so
+`wait-boot` timed out on a missing `console.log`.
+
+Window geometry: 638x1189 on first map, 958x1189 on later ones.
+
+## 4. Data analysis
+
+**It all scripts.** Nothing in the demo needs a human except the
+SW0-SW3 flips that trigger DFX swaps (`dfx_task` in
+`sw/tricorder-rtos/src/main.c` only acts on `ui_live.req_rm`); the
+driver documents that rather than faking it.
+
+**Screenshot path.** `xwd -id <window>` succeeds where the root grab
+fails because XWayland only backs mapped toplevels, not a composited
+root. The XWD header is 25 big-endian u32s: width/height at words 4/5,
+`bits_per_pixel` word 11, `bytes_per_line` word 12, colormap count word
+19 (12 bytes each) before pixel data; this visual is 32 bpp BGRX. Ten
+lines of `struct.unpack` + `Image.frombuffer` replace a missing tool.
+
+**pgrep self-match.** `subprocess.run("pgrep -f 'cat /dev/ttyUSB1'",
+shell=True)` spawns a shell whose own cmdline contains the pattern, so
+it always finds "itself". Argv list + anchored pattern
+(`^cat /dev/ttyUSB1`) fixes it; same for `pkill`.
+
+**Headless GUI test is real.** The receiver keeps `type=dfx` frames in
+a separate snapshot and only plain frames update the page, so the fake
+sender mirrors that: canned 75-key frame (captured from the board,
+`sample_frame.txt`) plus a proper swap frame to light `FLASH:`. A
+`tricorder_ui.py` change can now be screenshot-verified with no
+hardware.
+
+**Doc drift caught.** Staging time claim was ~10x stale; fixed in
+`docs/demo.md` (commit 33c67f8). "No DHCP lease" is the normal state
+on this point-to-point link, not a fault.
+
+## 5. Ideas for future experiments
+
+- Add a `swap` driver command that pokes `ui_live.req_rm` over xsdb
+  (entry 39's soak did this) so an agent can exercise DFX without a
+  switch flip, then assert the `type=dfx` frame and `sig=ok`.
+- Drive the GEO/BIO page buttons (no xdotool on host; could add a
+  `--page` CLI flag to `tricorder_ui.py` or a UDP control frame) and
+  screenshot all three pages.
+- Edge-case frames for the GUI: all-sentinel (-1/-2/-3) frame, `link=-2`,
+  `rm=-1` mid-swap, and a dropped-frame gap to confirm the LOST lamp.
+- Pin window geometry in `tricorder_ui.py` so screenshots are
+  pixel-comparable across runs.
 
 ---
 
